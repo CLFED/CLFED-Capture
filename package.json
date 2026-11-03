@@ -11,12 +11,11 @@
     "dist": "electron-builder --win --x64",
     "release": "bash scripts/release.sh"
   },
-  "dependencies": {},
   "devDependencies": {
-    "electron": "33.4.11",
+    "electron": "45.2.1",
     "electron-builder": "25.1.8",
-    "resedit": "2.0.3",
-    "ffmpeg-static": "5.2.0"
+    "ffmpeg-static": "5.2.0",
+    "resedit": "2.0.3"
   },
   "build": {
     "appId": "com.clfed.capture",

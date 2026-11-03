@@ -11,14 +11,20 @@ const CLIP_EXT = new Set(['.mp4', '.webm', '.png']);
 const RESOLUTIONS = { 720: [1280, 720], 1080: [1920, 1080], '2k': [2048, 1080], 1440: [2560, 1440] };
 const BITS_PER_PIXEL = 0.3;
 const SEGMENT_SECONDS = 5;
-const UPDATE_URL = process.env.CLFED_UPDATE_URL || 'https://github.com/CLFED/CLFED-Capture/releases/latest/download/latest.json';
+const PCM_BATCH_BYTES = 7680;
+const GPU_START_MS = 8000;
+const GPU_RETRY = 'gpu-retry';
+const testMode = !app.isPackaged && Boolean(process.env.CLFED_TEST_HOME);
+const UPDATE_PREFIX = 'https://github.com/CLFED/CLFED-Capture/releases/download/';
+const UPDATE_URL = (testMode && process.env.CLFED_UPDATE_URL) || 'https://github.com/CLFED/CLFED-Capture/releases/latest/download/latest.json';
+const GPU_BITS_PER_PIXEL = 0.18;
 const UPDATE_CHECK_MS = 6 * 60 * 60 * 1000;
 const OVERLAY_SIZE = { width: 300, height: 76 };
 const DEFAULT_HOTKEYS = { saveReplay: 'Alt+F8', toggleRecord: 'Alt+F7', screenshot: 'Alt+F6' };
 const DISCORD_EXES = ['Discord.exe', 'DiscordPTB.exe', 'DiscordCanary.exe'];
 const KNOWN_GAMES = ['VALORANT-Win64-Shipping.exe', 'cs2.exe', 'FortniteClient-Win64-Shipping.exe', 'RobloxPlayerBeta.exe', 'GTA5.exe', 'GTA5_Enhanced.exe',
   'cod.exe', 'r5apex.exe', 'Overwatch.exe', 'RocketLeague.exe', 'League of Legends.exe', 'Marvel-Win64-Shipping.exe', 'RainbowSix.exe', 'EscapeFromTarkov.exe', 'Minecraft.Windows.exe', 'javaw.exe', 'eldenring.exe', 'FC26.exe', 'Cyberpunk2077.exe'];
-if (process.env.CLFED_TEST_HOME) app.setPath('userData', process.env.CLFED_TEST_HOME);
+if (!app.isPackaged && process.env.CLFED_TEST_HOME) app.setPath('userData', process.env.CLFED_TEST_HOME);
 
 let win = null;
 let captureWin = null;
@@ -33,6 +39,9 @@ let segments = [];
 let segmentIndex = 0;
 let captureReady = null;
 let updateInfo = null;
+let gpuEngine = null;
+let gpuFailed = false;
+let gpuVendor = 'Other';
 let overlayWin = null;
 let overlayTimer = null;
 let processNames = new Set();
@@ -42,8 +51,8 @@ let fallbackActive = false;
 const home = () => app.getPath('userData');
 const replayDir = () => path.join(home(), 'replay');
 const settingsPath = () => path.join(home(), 'settings.json');
-const ffmpegPath = () => process.env.CLFED_FFMPEG || path.join(process.resourcesPath, 'ffmpeg.exe');
-const helperPath = () => process.env.CLFED_AUDIO_HELPER || path.join(process.resourcesPath, 'clfed-audio.exe');
+const ffmpegPath = () => (testMode && process.env.CLFED_FFMPEG) || path.join(process.resourcesPath, 'ffmpeg.exe');
+const helperPath = () => (testMode && process.env.CLFED_AUDIO_HELPER) || path.join(process.resourcesPath, 'clfed-audio.exe');
 const log = (message) => {
   try { fs.appendFileSync(path.join(home(), 'app.log'), `${new Date().toISOString()}  ${message}\n`); } catch { /* logging must never break the app */ }
 };
@@ -71,7 +80,7 @@ function setState(next) { state = { ...state, ...next }; send('state', state); }
 function loadSettings() {
   const defaults = {
     clipsFolder: path.join(app.getPath('videos'), 'CLFED Capture'), replaySeconds: 60, resolution: '1080', fps: 60,
-    monitorValue: '', captureMode: 'screen', windowName: '', onlyGaming: false, customGames: '', replayStorage: 'disk',
+    monitorValue: '', captureMode: 'screen', windowName: '', onlyGaming: false, customGames: '',
     audioMode: 'separate', systemOn: true, systemVolume: 100, micDevice: '', micVolume: 100, discordVolume: 100, appsVolume: 100,
     hotkeys: { ...DEFAULT_HOTKEYS }, autoReplay: true, mic: true, recordSeconds: 0, lastRecordSeconds: 60, storageLimitGB: 0, openAtLogin: false,
     language: app.getLocale().startsWith('ar') ? 'ar' : 'en',
@@ -159,8 +168,16 @@ function stopHelpers() {
 function startHelper(name, mode) {
   const child = spawn(helperPath(), [mode, ...DISCORD_EXES], { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
   helpers[name] = child;
+  let pending = [];
+  let pendingBytes = 0;
   child.stdout.on('data', (data) => {
-    if (captureWin && !captureWin.isDestroyed()) captureWin.webContents.send('pcm', { name, data: new Uint8Array(data).buffer });
+    pending.push(data);
+    pendingBytes += data.length;
+    if (pendingBytes < PCM_BATCH_BYTES) return;
+    const batch = Buffer.concat(pending);
+    pending = [];
+    pendingBytes = 0;
+    if (captureWin && !captureWin.isDestroyed()) captureWin.webContents.send('pcm', { name, data: new Uint8Array(batch).buffer });
   });
   child.on('error', (error) => log(`audio helper: ${error.message}`));
   child.on('close', (code) => {
@@ -177,7 +194,7 @@ function startHelper(name, mode) {
 }
 function hasDiscord() { return DISCORD_EXES.some((exe) => processNames.has(exe.toLowerCase())); }
 function syncHelpers() {
-  const wanted = settings.audioMode === 'separate' && (state.replay || state.record);
+  const wanted = settings.audioMode === 'separate' && (state.replay || state.record || Boolean(gpuEngine));
   if (!wanted) { stopHelpers(); fallbackActive = false; return; }
   if (!fallbackActive && !helpers.apps) startHelper('apps', 'exclude');
   if (hasDiscord() && !helpers.discord) startHelper('discord', 'include');
@@ -195,6 +212,7 @@ async function checkForUpdate() {
   if (!response.ok) return;
   const info = await response.json();
   if (!info.version || !info.url || !/^[a-f0-9]{64}$/.test(info.sha256 || '')) return;
+  if (!testMode && !info.url.startsWith(UPDATE_PREFIX)) return;
   if (!isNewer(info.version, app.getVersion())) return;
   updateInfo = info;
   setState({ update: { version: info.version, phase: 'available', progress: 0 } });
@@ -230,7 +248,7 @@ async function installUpdate() {
     throw new Error('updateFailed');
   }
   setUpdate({ phase: 'installing', progress: 100 });
-  if (process.env.CLFED_TEST_HOME) return;
+  if (testMode) return;
   spawn(target, ['/S'], { detached: true, stdio: 'ignore' }).unref();
   quitting = true;
   app.quit();
@@ -238,7 +256,7 @@ async function installUpdate() {
 
 function listProcesses() {
   return new Promise((resolve) => {
-    if (process.env.CLFED_TEST_PROCS) {
+    if (testMode && process.env.CLFED_TEST_PROCS) {
       fs.readFile(process.env.CLFED_TEST_PROCS, 'utf8', (_e, text) => resolve((text || '').split('\n').map((x) => x.trim()).filter(Boolean)));
       return;
     }
@@ -270,8 +288,135 @@ async function pollProcesses() {
   }
 }
 
+const useGpu = () => settings.captureMode !== 'window' && !gpuFailed && (testMode ? Boolean(process.env.CLFED_TEST_VIDEO_ARGS) : ['NVIDIA', 'AMD'].includes(gpuVendor));
+const gpuDir = () => path.join(home(), 'gpu');
+
+async function detectGpu() {
+  try {
+    const info = await app.getGPUInfo('basic');
+    const vendors = (info.gpuDevice || []).map((gpu) => gpu.vendorId);
+    if (vendors.includes(0x10de)) return 'NVIDIA';
+    if (vendors.includes(0x1002)) return 'AMD';
+  } catch (error) { log(error.message); }
+  return 'Other';
+}
+
+function chosenDisplay() {
+  const primary = screen.getPrimaryDisplay();
+  const chosen = screen.getAllDisplays().find((item) => String(item.id) === settings.monitorValue) || primary;
+  // Windows lists the primary screen first, then the others from left to right.
+  const others = screen.getAllDisplays().filter((item) => item.id !== primary.id).sort((a, b) => a.bounds.x - b.bounds.x);
+  const index = chosen.id === primary.id ? 0 : others.findIndex((item) => item.id === chosen.id) + 1;
+  return { index, width: Math.round(chosen.size.width * chosen.scaleFactor), height: Math.round(chosen.size.height * chosen.scaleFactor) };
+}
+
+function even(value) { return Math.round(value / 2) * 2; }
+
+function gpuArgs() {
+  const target = path.join(gpuDir(), 'seg%08d.ts');
+  const [boxWidth, boxHeight] = RESOLUTIONS[settings.resolution] || RESOLUTIONS[1080];
+  const display = chosenDisplay();
+  const scale = Math.min(1, boxWidth / display.width, boxHeight / display.height);
+  const width = even(display.width * scale);
+  const height = even(display.height * scale);
+  const fps = settings.fps;
+  const bitrate = String(Math.round(width * height * fps * GPU_BITS_PER_PIXEL));
+  let input;
+  let encoder;
+  if (testMode) {
+    input = process.env.CLFED_TEST_VIDEO_ARGS.replace('{DISPLAY}', process.env.DISPLAY || ':0').split('|');
+    encoder = ['-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', '-g', String(fps), '-b:v', bitrate];
+  } else {
+    let filter = `ddagrab=output_idx=${display.index}:framerate=${fps}`;
+    if (gpuVendor === 'NVIDIA') {
+      if (scale < 1) filter += `,hwmap=derive_device=cuda,scale_cuda=${width}:${height}`;
+      encoder = ['-c:v', 'h264_nvenc', '-preset', 'p2', '-tune', 'll', '-rc', 'cbr', '-b:v', bitrate, '-maxrate', bitrate, '-bufsize', bitrate, '-g', String(fps), '-bf', '0', '-no-scenecut', '1'];
+    } else {
+      encoder = ['-c:v', 'h264_amf', '-usage', 'lowlatency', '-quality', 'speed', '-rc', 'cbr', '-b:v', bitrate, '-g', String(fps), '-bf', '0'];
+    }
+    input = ['-f', 'lavfi', '-i', filter];
+  }
+  return ['-hide_banner', '-loglevel', 'error', '-y', ...input, '-f', 's16le', '-ar', '48000', '-ac', '2', '-thread_queue_size', '2048', '-i', 'pipe:0',
+    '-map', '0:v', '-map', '1:a', ...encoder, '-c:a', 'aac', '-b:a', '192k', '-f', 'segment', '-segment_time', '1', '-segment_format', 'mpegts', target];
+}
+
+function gpuSegments() {
+  try { return fs.readdirSync(gpuDir()).filter((name) => name.endsWith('.ts')).sort(); } catch { return []; }
+}
+const segmentNumber = (name) => Number(name.slice(3, 11));
+
+function trimGpuSegments() {
+  if (!gpuEngine) return;
+  const files = gpuSegments();
+  if (!files.length) return;
+  const newest = segmentNumber(files[files.length - 1]);
+  let keepFrom = state.replay ? newest - settings.replaySeconds - 2 : newest - 1;
+  if (recording && recording.firstSegment !== undefined) keepFrom = Math.min(keepFrom, recording.firstSegment);
+  for (const name of files) if (segmentNumber(name) < keepFrom) fs.rmSync(path.join(gpuDir(), name), { force: true });
+}
+
+async function startGpuEngine() {
+  if (gpuEngine) return;
+  fs.rmSync(gpuDir(), { recursive: true, force: true });
+  fs.mkdirSync(gpuDir(), { recursive: true });
+  await command('startAudio', await captureConfig());
+  const child = spawn(ffmpegPath(), gpuArgs(), { windowsHide: true, stdio: ['pipe', 'ignore', 'pipe'] });
+  gpuEngine = child;
+  syncHelpers();
+  let errors = '';
+  child.stdin.on('error', () => {});
+  child.stderr.on('data', (data) => { errors = (errors + data).slice(-600); });
+  const exited = new Promise((resolve) => child.on('close', resolve));
+  child.on('error', (error) => { errors += error.message; });
+  child.on('close', () => { if (gpuEngine === child) gpuEngine = null; });
+  const deadline = Date.now() + GPU_START_MS;
+  while (Date.now() < deadline && gpuEngine === child && !gpuSegments().length) await new Promise((resolve) => setTimeout(resolve, 150));
+  if (gpuEngine === child && gpuSegments().length) return;
+  child.kill();
+  await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 500))]);
+  gpuEngine = null;
+  gpuFailed = true;
+  log(`GPU capture failed: ${errors}`);
+  fs.rmSync(gpuDir(), { recursive: true, force: true });
+  await command('stopAudio').catch(fail);
+  syncHelpers();
+  notify('gpuFallback', 'warn');
+  throw new Error(GPU_RETRY);
+}
+
+async function stopGpuEngineIfIdle() {
+  if (!gpuEngine || state.replay || recording) return;
+  const child = gpuEngine;
+  gpuEngine = null;
+  child.kill();
+  await command('stopAudio').catch(fail);
+  syncHelpers();
+  fs.rmSync(gpuDir(), { recursive: true, force: true });
+}
+
+async function joinSegments(names, target, seconds) {
+  const joined = path.join(gpuDir(), `join-${Date.now()}.ts`);
+  const output = fs.createWriteStream(joined);
+  for (const name of names) {
+    if (!output.write(fs.readFileSync(path.join(gpuDir(), name)))) await new Promise((resolve) => output.once('drain', resolve));
+  }
+  await new Promise((resolve) => output.end(resolve));
+  const limit = seconds > 0 ? ['-t', String(seconds)] : [];
+  await runFfmpeg(['-i', joined, ...limit, '-c', 'copy', '-bsf:a', 'aac_adtstoasc', '-movflags', '+faststart', target]);
+  fs.rmSync(joined, { force: true });
+}
+
 async function startReplay() {
   if (state.replay) return;
+  if (useGpu()) {
+    try {
+      await startGpuEngine();
+      setState({ replay: true });
+      return;
+    } catch (error) {
+      if (error.message !== GPU_RETRY) throw error;
+    }
+  }
   fs.rmSync(replayDir(), { recursive: true, force: true });
   fs.mkdirSync(replayDir(), { recursive: true });
   segments = [];
@@ -281,6 +426,11 @@ async function startReplay() {
 }
 async function stopReplay() {
   if (!state.replay) return;
+  if (gpuEngine) {
+    setState({ replay: false });
+    await stopGpuEngineIfIdle();
+    return;
+  }
   await command('stopReplay');
   setState({ replay: false });
   syncHelpers();
@@ -289,28 +439,62 @@ async function stopReplay() {
 }
 async function saveReplay() {
   if (!state.replay) { notify('replayFirst', 'warn'); return; }
+  if (gpuEngine) {
+    const names = gpuSegments().slice(0, -1).slice(-settings.replaySeconds);
+    if (!names.length) { notify('waitReplay', 'warn'); return; }
+    await joinSegments(names, path.join(settings.clipsFolder, `Replay ${stamp()}.mp4`), 0);
+    announce('savedReplay', 'replay');
+    return;
+  }
   await command('flushReplay');
   if (!segments.length) { notify('waitReplay', 'warn'); return; }
   const count = Math.ceil(settings.replaySeconds / SEGMENT_SECONDS);
   const parts = segments.slice(-count);
-  const memoryFiles = [];
-  const files = parts.map((part, index) => {
-    if (part.file) return part.file;
-    const file = path.join(replayDir(), `memory-${Date.now()}-${index}.webm`);
-    fs.writeFileSync(file, part.data);
-    memoryFiles.push(file);
-    return file;
-  });
+  const files = parts;
   const list = path.join(replayDir(), `list-${Date.now()}.txt`);
   fs.writeFileSync(list, files.map((file) => `file '${file.replace(/\\/g, '/').replace(/'/g, "'\\''")}'`).join('\n'));
   const target = path.join(settings.clipsFolder, `Replay ${stamp()}.mp4`);
   await runFfmpeg(['-f', 'concat', '-safe', '0', '-i', list, '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', target]);
-  [list, ...memoryFiles].forEach((file) => fs.rmSync(file, { force: true }));
+  fs.rmSync(list, { force: true });
   announce('savedReplay', 'replay');
+}
+
+async function startGpuRecord() {
+  await startGpuEngine();
+  const files = gpuSegments();
+  recording = { started: Date.now(), timer: null, firstSegment: segmentNumber(files[files.length - 1]) + 1 };
+  const limit = (Number(settings.recordSeconds) || 0) * 1000;
+  if (limit > 0) recording.timer = setTimeout(() => stopRecord().catch(fail), limit);
+  announce('recordStarted', 'record');
+  setState({ record: true, timecode: '00:00:00', stopAt: limit > 0 ? recording.started + limit : 0 });
+}
+async function stopGpuRecord() {
+  const current = recording;
+  clearTimeout(current.timer);
+  const seconds = (Date.now() - current.started) / 1000;
+  setState({ record: false, timecode: '', stopAt: 0 });
+  await new Promise((resolve) => setTimeout(resolve, 1300));
+  const names = gpuSegments().slice(0, -1).filter((name) => segmentNumber(name) >= current.firstSegment);
+  try {
+    if (names.length) await joinSegments(names, path.join(settings.clipsFolder, `Recording ${stamp()}.mp4`), seconds);
+  } finally {
+    recording = null;
+    await stopGpuEngineIfIdle();
+  }
+  announce('savedRecord', 'saved');
 }
 
 async function startRecord() {
   if (recording) return;
+  if (useGpu()) {
+    try {
+      await startGpuRecord();
+      return;
+    } catch (error) {
+      recording = null;
+      if (error.message !== GPU_RETRY) throw error;
+    }
+  }
   const raw = path.join(settings.clipsFolder, `Recording ${stamp()}.webm`);
   recording = { raw, stream: fs.createWriteStream(raw), started: Date.now(), timer: null };
   recording.stream.on('error', (error) => log(error.message));
@@ -325,6 +509,7 @@ async function startRecord() {
 }
 async function stopRecord() {
   if (!recording) return;
+  if (recording.firstSegment !== undefined) { await stopGpuRecord(); return; }
   const current = recording;
   clearTimeout(current.timer);
   await command('stopRecord');
@@ -453,6 +638,7 @@ function registerHotkeys() {
 }
 
 function tick() {
+  trimGpuSegments();
   if (recording) {
     const seconds = Math.floor((Date.now() - recording.started) / 1000);
     setState({ timecode: `${pad(Math.floor(seconds / 3600))}:${pad(Math.floor(seconds / 60) % 60)}:${pad(seconds % 60)}` });
@@ -479,23 +665,21 @@ ipcMain.handle('rec-chunk', (_e, data) => new Promise((resolve) => {
 }));
 ipcMain.handle('rec-segment', (_e, data) => {
   if (!data.byteLength || !state.replay) return;
-  if (settings.replayStorage === 'ram') {
-    segments.push({ data: Buffer.from(data) });
-  } else {
-    const file = path.join(replayDir(), `seg-${segmentIndex++}.webm`);
-    fs.writeFileSync(file, Buffer.from(data));
-    segments.push({ file });
-  }
+  const file = path.join(replayDir(), `seg-${segmentIndex++}.webm`);
+  fs.writeFileSync(file, Buffer.from(data));
+  segments.push(file);
   const keep = Math.ceil(settings.replaySeconds / SEGMENT_SECONDS) + 1;
   while (segments.length > keep) {
-    const old = segments.shift();
-    if (old.file) fs.rmSync(old.file, { force: true });
+    fs.rmSync(segments.shift(), { force: true });
   }
 });
 ipcMain.on('source-ended', () => {
   notify('sourceEnded', 'warn');
   stopRecord().catch(fail);
   stopReplay().catch(fail);
+});
+ipcMain.on('mix-pcm', (_e, data) => {
+  if (gpuEngine && gpuEngine.stdin.writable) gpuEngine.stdin.write(Buffer.from(data));
 });
 ipcMain.on('rec-failed', (_e, message) => { log(message); notify('recordProblem', 'warn', message); });
 
@@ -524,7 +708,7 @@ ipcMain.handle('set-volume', async (_e, name, value) => {
   const volume = Math.min(200, Math.max(0, Number(value) || 0));
   settings[`${name}Volume`] = volume;
   saveSettings();
-  if (state.replay || state.record) await command('setGain', { name, value: volume / 100 });
+  if (state.replay || state.record || gpuEngine) await command('setGain', { name, value: volume / 100 });
 });
 ipcMain.handle('set-hotkey', (_e, name, accelerator) => {
   if (!DEFAULT_HOTKEYS[name]) return settings.hotkeys;
@@ -594,6 +778,7 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(async () => {
     settings = loadSettings();
     saveSettings();
+    gpuVendor = await detectGpu();
     fs.mkdirSync(settings.clipsFolder, { recursive: true });
     await createWindows();
     createTray();
@@ -620,9 +805,9 @@ if (!app.requestSingleInstanceLock()) {
     if (!app.clfedStopped) {
       event.preventDefault();
       app.clfedStopped = true;
-      stopHelpers();
       await stopRecord().catch(fail);
       await stopReplay().catch(fail);
+      stopHelpers();
       app.quit();
     }
   });

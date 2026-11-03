@@ -14,6 +14,8 @@ let options = {};
 let gains = {};
 let pcmNodes = {};
 let appsVolume = 1;
+let mix = null;
+let tap = null;
 
 function desktopVideo(id, config) {
   return { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: id, maxWidth: config.width, maxHeight: config.height, maxFrameRate: config.fps } };
@@ -54,19 +56,32 @@ function addGain(name, value, destination) {
   return node;
 }
 
-async function ensureStream(config) {
-  if (stream) return;
-  const desktop = await openDesktop(config);
-  const video = desktop.getVideoTracks()[0];
-  video.addEventListener('ended', () => api.sourceEnded());
-  let systemTracks = desktop.getAudioTracks();
+async function ensureAudio(config, desktopAudio = []) {
+  if (audioContext) return;
+  let systemTracks = desktopAudio;
   if (!systemTracks.length && config.audioSourceId) systemTracks = await openLoopback(config);
   const micTracks = config.micOn ? await openMic(config) : [];
   extraTracks = [...systemTracks, ...micTracks];
-
-  audioContext = new AudioContext({ sampleRate: 48000 });
+  audioContext = new AudioContext({ sampleRate: 48000, latencyHint: 'playback' });
   await audioContext.resume();
-  const mix = audioContext.createMediaStreamDestination();
+  await audioContext.audioWorklet.addModule('pcm-worklet.js');
+  // The limiter stops loud mixes and volumes above 100% from clipping into static.
+  const master = audioContext.createDynamicsCompressor();
+  master.threshold.value = -3;
+  master.knee.value = 3;
+  master.ratio.value = 20;
+  master.attack.value = 0.002;
+  master.release.value = 0.1;
+  mix = audioContext.createMediaStreamDestination();
+  master.connect(mix);
+  if (config.tap) {
+    tap = new AudioWorkletNode(audioContext, 'pcm-tap', { numberOfOutputs: 1 });
+    tap.port.onmessage = ({ data }) => api.mixPcm(data);
+    const silent = audioContext.createGain();
+    silent.gain.value = 0;
+    master.connect(tap);
+    tap.connect(silent).connect(audioContext.destination);
+  }
   gains = {};
   pcmNodes = {};
   appsVolume = config.appsVolume;
@@ -74,17 +89,30 @@ async function ensureStream(config) {
     for (const track of tracks) audioContext.createMediaStreamSource(new MediaStream([track])).connect(node);
   };
   if (config.audioMode === 'separate') {
-    await audioContext.audioWorklet.addModule('pcm-worklet.js');
-    connect(systemTracks, addGain('fallback', 0, mix));
+    connect(systemTracks, addGain('fallback', 0, master));
     for (const [name, volume] of [['apps', config.appsVolume], ['discord', config.discordVolume]]) {
       const node = new AudioWorkletNode(audioContext, 'pcm-source', { numberOfInputs: 0, outputChannelCount: [2] });
-      node.connect(addGain(name, volume, mix));
+      node.connect(addGain(name, volume, master));
       pcmNodes[name] = node;
     }
   } else if (config.systemOn) {
-    connect(systemTracks, addGain('system', config.systemVolume, mix));
+    connect(systemTracks, addGain('system', config.systemVolume, master));
   }
-  if (micTracks.length) connect(micTracks, addGain('mic', config.micVolume, mix));
+  if (micTracks.length) connect(micTracks, addGain('mic', config.micVolume, master));
+}
+
+function closeAudio() {
+  extraTracks.forEach((track) => track.stop());
+  if (audioContext) audioContext.close();
+  audioContext = null; extraTracks = []; gains = {}; pcmNodes = {}; tap = null; mix = null;
+}
+
+async function ensureStream(config) {
+  if (stream) return;
+  const desktop = await openDesktop(config);
+  const video = desktop.getVideoTracks()[0];
+  video.addEventListener('ended', () => api.sourceEnded());
+  await ensureAudio(config, desktop.getAudioTracks());
   stream = new MediaStream([video, ...mix.stream.getAudioTracks()]);
   const mimeType = MIME_TYPES.find((type) => MediaRecorder.isTypeSupported(type));
   options = { mimeType, videoBitsPerSecond: config.bitrate, audioBitsPerSecond: 192000 };
@@ -93,9 +121,8 @@ async function ensureStream(config) {
 function releaseStream() {
   if (recordRecorder || replayOn || !stream) return;
   stream.getTracks().forEach((track) => track.stop());
-  extraTracks.forEach((track) => track.stop());
-  if (audioContext) audioContext.close();
-  stream = null; audioContext = null; extraTracks = []; gains = {}; pcmNodes = {};
+  stream = null;
+  closeAudio();
 }
 
 function startSegment() {
@@ -124,6 +151,8 @@ function rotateSegment() {
 }
 
 const commands = {
+  startAudio(config) { return ensureAudio({ ...config, tap: true }); },
+  stopAudio() { closeAudio(); },
   async startReplay(config) {
     await ensureStream(config);
     if (replayOn) return;
