@@ -175,6 +175,8 @@ async function command(name, config) {
 function runFfmpeg(args) {
   return new Promise((resolve, reject) => {
     const child = spawn(ffmpegPath(), ['-hide_banner', '-loglevel', 'error', '-y', ...args], { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
+    // Saving must not compete with the game.
+    try { os.setPriority(child.pid, os.constants.priority.PRIORITY_BELOW_NORMAL); } catch { /* the process may already be finished */ }
     let errors = '';
     child.stderr.on('data', (data) => { errors += data; });
     child.on('error', reject);
@@ -363,20 +365,20 @@ function appendAudio(data) {
   audioStore.bytes += data.byteLength;
 }
 
-function writeAudioSlice(fromMs, toMs, target) {
+async function writeAudioSlice(fromMs, toMs, target) {
   const align = (value) => Math.floor(value / 4) * 4;
   const start = align(((fromMs - audioStore.startMs) / 1000) * PCM_BYTES_PER_SECOND);
   const end = align(((toMs - audioStore.startMs) / 1000) * PCM_BYTES_PER_SECOND);
-  const output = fs.openSync(target, 'w');
-  if (start < 0) fs.writeSync(output, Buffer.alloc(-start));
-  for (let bucket = Math.floor(Math.max(0, start) / AUDIO_BUCKET_BYTES); bucket * AUDIO_BUCKET_BYTES < end; bucket++) {
-    const file = path.join(gpuDir(), `a${String(bucket).padStart(8, '0')}.pcm`);
-    if (!fs.existsSync(file)) continue;
-    const data = fs.readFileSync(file);
-    const base = bucket * AUDIO_BUCKET_BYTES;
-    fs.writeSync(output, data.subarray(Math.max(0, start - base), Math.max(0, Math.min(data.length, end - base))));
-  }
-  fs.closeSync(output);
+  const output = await fs.promises.open(target, 'w');
+  try {
+    if (start < 0) await output.write(Buffer.alloc(-start));
+    for (let bucket = Math.floor(Math.max(0, start) / AUDIO_BUCKET_BYTES); bucket * AUDIO_BUCKET_BYTES < end; bucket++) {
+      const data = await fs.promises.readFile(path.join(gpuDir(), `a${String(bucket).padStart(8, '0')}.pcm`)).catch(() => null);
+      if (!data) continue;
+      const base = bucket * AUDIO_BUCKET_BYTES;
+      await output.write(data.subarray(Math.max(0, start - base), Math.max(0, Math.min(data.length, end - base))));
+    }
+  } finally { await output.close(); }
 }
 
 function gpuSegments() {
@@ -466,14 +468,14 @@ async function joinSegments(names, target, seconds) {
   const joined = path.join(gpuDir(), `join-${Date.now()}.mpg`);
   const output = fs.createWriteStream(joined);
   for (const name of names) {
-    if (!output.write(fs.readFileSync(path.join(gpuDir(), name)))) await new Promise((resolve) => output.once('drain', resolve));
+    if (!output.write(await fs.promises.readFile(path.join(gpuDir(), name)))) await new Promise((resolve) => output.once('drain', resolve));
   }
   await new Promise((resolve) => output.end(resolve));
   const firstMs = videoStartMs + segmentNumber(names[0]) * 1000;
   const lastMs = videoStartMs + (segmentNumber(names[names.length - 1]) + 1) * 1000;
   const sound = `${joined}.pcm`;
   const hasAudio = Boolean(audioStore);
-  if (hasAudio) writeAudioSlice(firstMs + settings.audioOffsetMs, lastMs + settings.audioOffsetMs, sound);
+  if (hasAudio) await writeAudioSlice(firstMs + settings.audioOffsetMs, lastMs + settings.audioOffsetMs, sound);
   const audioInput = hasAudio ? ['-f', 's16le', '-ar', '48000', '-ac', '2', '-i', sound] : [];
   const audioOutput = hasAudio ? ['-map', '0:v', '-map', '1:a', '-c:a', 'aac', '-b:a', '192k'] : [];
   const limit = seconds > 0 ? ['-t', String(seconds)] : [];
@@ -518,8 +520,8 @@ async function saveReplay() {
   if (gpuEngine) {
     const names = gpuSegments().slice(0, -1).slice(-settings.replaySeconds);
     if (!names.length) { notify('waitReplay', 'warn'); return; }
-    await joinSegments(names, path.join(settings.clipsFolder, `Replay ${stamp()}.mp4`), 0);
     announce('savedReplay', 'replay');
+    await joinSegments(names, path.join(settings.clipsFolder, `Replay ${stamp()}.mp4`), 0);
     return;
   }
   await command('flushReplay');
@@ -548,6 +550,7 @@ async function stopGpuRecord() {
   const current = recording;
   clearTimeout(current.timer);
   const seconds = (Date.now() - current.started) / 1000;
+  announce('savedRecord', 'saved');
   setState({ record: false, timecode: '', stopAt: 0 });
   await new Promise((resolve) => setTimeout(resolve, 1300));
   const names = gpuSegments().slice(0, -1).filter((name) => segmentNumber(name) >= current.firstSegment);
@@ -557,7 +560,6 @@ async function stopGpuRecord() {
     recording = null;
     await stopGpuEngineIfIdle();
   }
-  announce('savedRecord', 'saved');
 }
 
 async function startRecord() {
@@ -612,12 +614,12 @@ async function trimClip(file, { start, end }) {
 }
 
 async function screenshot() {
+  announce('savedShot', 'shot');
   const display = screen.getAllDisplays().find((item) => String(item.id) === settings.monitorValue) || screen.getPrimaryDisplay();
   const size = { width: Math.round(display.size.width * display.scaleFactor), height: Math.round(display.size.height * display.scaleFactor) };
   const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: size });
   const source = sources.find((item) => item.display_id === String(display.id)) || sources[0];
-  fs.writeFileSync(path.join(settings.clipsFolder, `Screenshot ${stamp()}.png`), source.thumbnail.toPNG());
-  announce('savedShot', 'shot');
+  await fs.promises.writeFile(path.join(settings.clipsFolder, `Screenshot ${stamp()}.png`), source.thumbnail.toPNG());
 }
 
 function fail(error) { log(error.stack || error.message); send('toast', { key: I18N.ar[error.message] ? error.message : '', text: error.message, tone: 'warn' }); }
