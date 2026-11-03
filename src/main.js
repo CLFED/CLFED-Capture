@@ -249,7 +249,7 @@ async function installUpdate() {
   }
   setUpdate({ phase: 'installing', progress: 100 });
   if (testMode) return;
-  spawn(target, ['/S'], { detached: true, stdio: 'ignore' }).unref();
+  spawn(target, ['/AUTO'], { detached: true, stdio: 'ignore' }).unref();
   quitting = true;
   app.quit();
 }
@@ -547,7 +547,13 @@ async function screenshot() {
 function fail(error) { log(error.stack || error.message); send('toast', { key: I18N.ar[error.message] ? error.message : '', text: error.message, tone: 'warn' }); }
 const actions = {
   saveReplay,
-  toggleReplay: () => (state.replay ? stopReplay() : startReplay()),
+  toggleReplay: async () => {
+    const enable = !state.replay;
+    settings.autoReplay = enable;
+    saveSettings();
+    setState({ autoReplay: enable });
+    if (enable) await startReplay(); else await stopReplay();
+  },
   toggleRecord: () => (state.record ? stopRecord() : startRecord()),
   screenshot,
   installUpdate,

@@ -80,6 +80,12 @@ form .check{display:flex;grid-column:1/-1;margin:0;color:var(--text);font-size:1
 .about{margin-top:24px;color:var(--muted);font-size:12px;white-space:pre-line}
 #updateBar{display:flex;align-items:center;justify-content:space-between;gap:12px;max-width:980px;margin:0 auto 16px;padding:10px 14px;background:var(--tint);border:1px solid var(--steel);border-radius:12px}
 #updateBar button{padding:7px 14px;background:var(--steel);border-radius:8px;color:#14202c;font-weight:600}
+.cardHead{display:flex;align-items:center;justify-content:space-between;width:100%;gap:10px}
+.pill{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px}.pill b{font-weight:600}
+.pill i{position:relative;width:34px;height:20px;border-radius:10px;background:var(--steel-dark)}
+.pill i::after{content:"";position:absolute;top:3px;inset-inline-start:3px;width:14px;height:14px;border-radius:50%;background:var(--muted);transition:inset-inline-start .15s}
+#toggleReplay.active .pill{color:var(--steel)}#toggleReplay.active .pill i{background:var(--steel)}
+#toggleReplay.active .pill i::after{inset-inline-start:17px;background:#14202c}
 #toast{position:fixed;bottom:20px;inset-inline-end:20px;max-width:340px;padding:9px 14px;background:var(--panel2);border-radius:8px}
 #toast.good{color:var(--good)}#toast.warn{color:var(--warn)}
 @media(max-width:1020px){.grid,.recent{grid-template-columns:repeat(2,1fr)}}

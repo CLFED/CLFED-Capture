@@ -133,7 +133,9 @@ function renderState(next) {
   if (state.record) label = left ? `${t('stopRecord')}، ${t('remaining')} ${duration(left)}` : `${t('stopRecord')} ${ltr(state.timecode || '')}`;
   $('recordLabel').textContent = lang === 'en' ? label.replace('،', ',') : label;
   $('toggleRecord').classList.toggle('active', Boolean(state.record));
-  $('replayLabel').textContent = state.replay ? t('replayOff') : t('replayOn');
+  $('replayState').textContent = state.replay ? 'ON' : 'OFF';
+  $('toggleReplay').setAttribute('aria-checked', String(Boolean(state.replay)));
+  if (state.autoReplay !== undefined) $('autoReplay').checked = state.autoReplay;
   $('toggleReplay').classList.toggle('active', Boolean(state.replay));
 }
 
@@ -373,7 +375,7 @@ function keyName(event) {
   if (code.startsWith('Key')) return code.slice(3);
   if (code.startsWith('Digit')) return code.slice(5);
   if (code.startsWith('Numpad') && /\d$/.test(code)) return `num${code.slice(6)}`;
-  return { Space: 'Space', Insert: 'Insert', Delete: 'Delete', Home: 'Home', End: 'End', PageUp: 'PageUp', PageDown: 'PageDown', ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right' }[code] || '';
+  return { Minus: '-', Equal: '=', BracketLeft: '[', BracketRight: ']', Backslash: '\\', Semicolon: ';', Quote: "'", Comma: ',', Period: '.', Slash: '/', Backquote: '`', Tab: 'Tab', Space: 'Space', Insert: 'Insert', Delete: 'Delete', Home: 'Home', End: 'End', PageUp: 'PageUp', PageDown: 'PageDown', ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right' }[code] || '';
 }
 document.querySelectorAll('[data-hotkey]').forEach((button) => button.addEventListener('click', () => {
   listening = listening === button.dataset.hotkey ? null : button.dataset.hotkey;
@@ -386,7 +388,6 @@ window.addEventListener('keydown', async (event) => {
   const key = keyName(event);
   if (!key) return;
   const modifiers = [event.ctrlKey && 'Ctrl', event.altKey && 'Alt', event.shiftKey && 'Shift'].filter(Boolean);
-  if (!modifiers.length && !/^F\d/.test(key)) { toast(t('hotkeyInvalid'), 'warn'); return; }
   const name = listening;
   listening = null;
   const next = await guard(() => api.setHotkey(name, [...modifiers, key].join('+')));
