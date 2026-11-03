@@ -1,0 +1,2 @@
+CLFED Capture is developed by Talal (CLFED) and licensed under GPL-3.0-or-later.
+It includes Electron and Chromium (MIT and BSD-style licenses) and FFmpeg (GPL build, https://ffmpeg.org), used to finalize video files.

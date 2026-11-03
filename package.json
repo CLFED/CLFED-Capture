@@ -1,0 +1,56 @@
+{
+  "name": "clfed-capture",
+  "productName": "CLFED Capture",
+  "version": "1.4.0",
+  "description": "Game recorder by Talal (CLFED)",
+  "author": "Talal (CLFED)",
+  "license": "GPL-3.0-or-later",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win --x64",
+    "release": "bash scripts/release.sh"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "electron": "33.4.11",
+    "electron-builder": "25.1.8",
+    "resedit": "2.0.3",
+    "ffmpeg-static": "5.2.0"
+  },
+  "build": {
+    "appId": "com.clfed.capture",
+    "artifactName": "CLFED-Capture-Setup-${version}.${ext}",
+    "icon": "build/icon.ico",
+    "afterPack": "build/afterPack.js",
+    "files": [
+      "src/**",
+      "package.json",
+      "build/icon.ico"
+    ],
+    "extraResources": [
+      "NOTICE.txt",
+      {
+        "from": "build/bin/ffmpeg.exe",
+        "to": "ffmpeg.exe"
+      },
+      {
+        "from": "build/bin/clfed-audio.exe",
+        "to": "clfed-audio.exe"
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "CLFED Capture"
+    }
+  },
+  "repository": "https://github.com/CLFED/CLFED-Capture"
+}
