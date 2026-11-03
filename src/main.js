@@ -20,6 +20,7 @@ const UPDATE_URL = (testMode && process.env.CLFED_UPDATE_URL) || 'https://github
 const GPU_BITS_PER_PIXEL = 0.18;
 const UPDATE_CHECK_MS = 6 * 60 * 60 * 1000;
 const OVERLAY_SIZE = { width: 300, height: 76 };
+const TIMER_SIZE = { width: 130, height: 42 };
 const DEFAULT_HOTKEYS = { saveReplay: 'Alt+F8', toggleRecord: 'Alt+F7', screenshot: 'Alt+F6' };
 const DISCORD_EXES = ['Discord.exe', 'DiscordPTB.exe', 'DiscordCanary.exe'];
 const KNOWN_GAMES = ['VALORANT-Win64-Shipping.exe', 'cs2.exe', 'FortniteClient-Win64-Shipping.exe', 'RobloxPlayerBeta.exe', 'GTA5.exe', 'GTA5_Enhanced.exe',
@@ -44,6 +45,7 @@ let gpuFailed = false;
 let gpuVendor = 'Other';
 let overlayWin = null;
 let overlayTimer = null;
+let timerWin = null;
 let processNames = new Set();
 const helpers = {};
 let fallbackActive = false;
@@ -68,19 +70,31 @@ function announce(key, kind) {
   if (!overlayWin || overlayWin.isDestroyed()) return;
   const display = screen.getAllDisplays().find((item) => String(item.id) === settings.monitorValue) || screen.getPrimaryDisplay();
   const { x, y, width } = display.workArea;
-  overlayWin.setBounds({ x: x + width - OVERLAY_SIZE.width - 12, y: y + 12, ...OVERLAY_SIZE });
+  overlayWin.setBounds({ x: x + width - OVERLAY_SIZE.width - 12, y: y + 12 + TIMER_SIZE.height + 6, ...OVERLAY_SIZE });
   overlayWin.webContents.send('show', { title: tr(key), kind, dir: settings.language === 'ar' ? 'rtl' : 'ltr' });
   overlayWin.setAlwaysOnTop(true, 'screen-saver');
   overlayWin.showInactive();
   clearTimeout(overlayTimer);
   overlayTimer = setTimeout(() => overlayWin.hide(), 3000);
 }
-function setState(next) { state = { ...state, ...next }; send('state', state); }
+function updateTimerWindow() {
+  if (!timerWin || timerWin.isDestroyed()) return;
+  if (!state.record || !settings.showRecordTimer) { timerWin.hide(); return; }
+  const display = screen.getAllDisplays().find((item) => String(item.id) === settings.monitorValue) || screen.getPrimaryDisplay();
+  const { x, y, width } = display.workArea;
+  timerWin.setBounds({ x: x + width - TIMER_SIZE.width - 12, y: y + 12, ...TIMER_SIZE });
+  timerWin.webContents.send('time', state.timecode || '00:00:00');
+  if (!timerWin.isVisible()) {
+    timerWin.setAlwaysOnTop(true, 'screen-saver');
+    timerWin.showInactive();
+  }
+}
+function setState(next) { state = { ...state, ...next }; send('state', state); updateTimerWindow(); }
 
 function loadSettings() {
   const defaults = {
     clipsFolder: path.join(app.getPath('videos'), 'CLFED Capture'), replaySeconds: 60, resolution: '1080', fps: 60,
-    monitorValue: '', captureMode: 'screen', windowName: '', onlyGaming: false, customGames: '',
+    monitorValue: '', showRecordTimer: true, captureMode: 'screen', windowName: '', onlyGaming: false, customGames: '',
     audioMode: 'separate', systemOn: true, systemVolume: 100, micDevice: '', micVolume: 100, discordVolume: 100, appsVolume: 100,
     hotkeys: { ...DEFAULT_HOTKEYS }, autoReplay: true, mic: true, recordSeconds: 0, lastRecordSeconds: 60, storageLimitGB: 0, openAtLogin: false,
     language: app.getLocale().startsWith('ar') ? 'ar' : 'en',
@@ -611,6 +625,13 @@ function createWindows() {
   // Keeps the notice out of the video and out of screenshots.
   overlayWin.setContentProtection(true);
   overlayWin.loadFile(path.join(__dirname, 'ui', 'overlay.html'));
+  timerWin = new BrowserWindow({
+    ...TIMER_SIZE, show: false, frame: false, transparent: true, resizable: false, movable: false, focusable: false, skipTaskbar: true, hasShadow: false, alwaysOnTop: true,
+    webPreferences: { preload: path.join(__dirname, 'preload-overlay.js'), contextIsolation: true, sandbox: true, backgroundThrottling: false },
+  });
+  timerWin.setIgnoreMouseEvents(true);
+  timerWin.setContentProtection(true);
+  timerWin.loadFile(path.join(__dirname, 'ui', 'timer.html'));
   captureReady = new Promise((resolve) => captureWin.webContents.once('did-finish-load', resolve));
   captureWin.loadFile(path.join(__dirname, 'ui', 'capture.html'));
   return captureReady;

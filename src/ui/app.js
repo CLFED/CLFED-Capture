@@ -299,7 +299,7 @@ $('pickFolder').addEventListener('click', async () => {
 function collectSettings() {
   return {
     captureMode, monitorValue: $('monitor').value, windowName: $('windowName').value || windowChoice, fps: Number($('fps').value), resolution: $('resolution').value,
-    autoReplay: $('autoReplay').checked, onlyGaming: $('onlyGaming').checked, customGames: $('customGames').value,
+    showRecordTimer: $('showRecordTimer').checked, autoReplay: $('autoReplay').checked, onlyGaming: $('onlyGaming').checked, customGames: $('customGames').value,
     storageLimitGB: Math.max(0, Number($('storageLimitGB').value) || 0), clipsFolder: $('clipsFolder').value,
   };
 }
@@ -420,6 +420,7 @@ api.on('schedule-done', () => { $('startAt').value = ''; $('clearSchedule').hidd
   $('clipsFolder').value = s.clipsFolder;
   $('autoReplay').checked = s.autoReplay;
   $('onlyGaming').checked = s.onlyGaming;
+  $('showRecordTimer').checked = s.showRecordTimer;
   $('customGames').value = s.customGames;
   $('systemOn').checked = s.systemOn;
   captureMode = s.captureMode;
