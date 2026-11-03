@@ -3,6 +3,7 @@ const { app, BrowserWindow, Menu, Tray, desktopCapturer, dialog, globalShortcut,
 const { execFile, spawn } = require('child_process');
 const crypto = require('crypto');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { pathToFileURL } = require('url');
 const I18N = require('./ui/i18n');
@@ -14,6 +15,8 @@ const SEGMENT_SECONDS = 5;
 const PCM_BATCH_BYTES = 7680;
 const GPU_START_MS = 8000;
 const GPU_RETRY = 'gpu-retry';
+const PCM_BYTES_PER_SECOND = 192000;
+const AUDIO_BUCKET_BYTES = PCM_BYTES_PER_SECOND * 10;
 const testMode = !app.isPackaged && Boolean(process.env.CLFED_TEST_HOME);
 const UPDATE_PREFIX = 'https://github.com/CLFED/CLFED-Capture/releases/download/';
 const UPDATE_URL = (testMode && process.env.CLFED_UPDATE_URL) || 'https://github.com/CLFED/CLFED-Capture/releases/latest/download/latest.json';
@@ -42,7 +45,9 @@ let captureReady = null;
 let updateInfo = null;
 let gpuEngine = null;
 let gpuFailed = false;
-let gpuVendor = 'Other';
+let audioStore = null;
+let workingCandidate = '';
+let videoStartMs = 0;
 let overlayWin = null;
 let overlayTimer = null;
 let timerWin = null;
@@ -302,18 +307,8 @@ async function pollProcesses() {
   }
 }
 
-const useGpu = () => settings.captureMode !== 'window' && !gpuFailed && (testMode ? Boolean(process.env.CLFED_TEST_VIDEO_ARGS) : ['NVIDIA', 'AMD'].includes(gpuVendor));
+const useGpu = () => settings.captureMode !== 'window' && !gpuFailed && (!testMode || Boolean(process.env.CLFED_TEST_VIDEO_ARGS));
 const gpuDir = () => path.join(home(), 'gpu');
-
-async function detectGpu() {
-  try {
-    const info = await app.getGPUInfo('basic');
-    const vendors = (info.gpuDevice || []).map((gpu) => gpu.vendorId);
-    if (vendors.includes(0x10de)) return 'NVIDIA';
-    if (vendors.includes(0x1002)) return 'AMD';
-  } catch (error) { log(error.message); }
-  return 'Other';
-}
 
 function chosenDisplay() {
   const primary = screen.getPrimaryDisplay();
@@ -326,36 +321,67 @@ function chosenDisplay() {
 
 function even(value) { return Math.round(value / 2) * 2; }
 
-function gpuArgs() {
-  const target = path.join(gpuDir(), 'seg%08d.ts');
+function captureSize() {
   const [boxWidth, boxHeight] = RESOLUTIONS[settings.resolution] || RESOLUTIONS[1080];
   const display = chosenDisplay();
   const scale = Math.min(1, boxWidth / display.width, boxHeight / display.height);
-  const width = even(display.width * scale);
-  const height = even(display.height * scale);
+  return { display, scale, width: even(display.width * scale), height: even(display.height * scale) };
+}
+
+// Tried in order, because a failed start is the only reliable sign of what the PC supports.
+function gpuCandidates() {
+  if (testMode) return ['test'];
+  return captureSize().scale < 1 ? ['nvenc-scaled', 'nvenc', 'amf'] : ['nvenc', 'amf'];
+}
+
+function gpuArgs(candidate) {
+  const target = path.join(gpuDir(), 'seg%08d.ts');
+  const { display, width, height } = captureSize();
   const fps = settings.fps;
   const bitrate = String(Math.round(width * height * fps * GPU_BITS_PER_PIXEL));
   let input;
   let encoder;
-  if (testMode) {
+  if (candidate === 'test') {
     input = process.env.CLFED_TEST_VIDEO_ARGS.replace('{DISPLAY}', process.env.DISPLAY || ':0').split('|');
     encoder = ['-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', '-g', String(fps), '-b:v', bitrate];
   } else {
     let filter = `ddagrab=output_idx=${display.index}:framerate=${fps}`;
-    if (gpuVendor === 'NVIDIA') {
-      if (scale < 1) filter += `,hwmap=derive_device=cuda,scale_cuda=${width}:${height}`;
-      encoder = ['-c:v', 'h264_nvenc', '-preset', 'p2', '-tune', 'll', '-rc', 'cbr', '-b:v', bitrate, '-maxrate', bitrate, '-bufsize', bitrate, '-g', String(fps), '-bf', '0', '-no-scenecut', '1'];
-    } else {
-      encoder = ['-c:v', 'h264_amf', '-usage', 'lowlatency', '-quality', 'speed', '-rc', 'cbr', '-b:v', bitrate, '-g', String(fps), '-bf', '0'];
-    }
+    if (candidate === 'nvenc-scaled') filter += `,hwmap=derive_device=cuda,scale_cuda=${width}:${height}`;
     input = ['-f', 'lavfi', '-i', filter];
+    encoder = candidate === 'amf'
+      ? ['-c:v', 'h264_amf', '-usage', 'lowlatency', '-quality', 'speed', '-rc', 'cbr', '-b:v', bitrate, '-g', String(fps), '-bf', '0']
+      : ['-c:v', 'h264_nvenc', '-preset', 'p2', '-tune', 'll', '-rc', 'cbr', '-b:v', bitrate, '-maxrate', bitrate, '-bufsize', bitrate, '-g', String(fps), '-bf', '0', '-no-scenecut', '1'];
   }
-  return ['-hide_banner', '-loglevel', 'error', '-y', ...input, '-f', 's16le', '-ar', '48000', '-ac', '2', '-thread_queue_size', '2048', '-i', 'pipe:0',
-    '-map', '0:v', '-map', '1:a', ...encoder, '-c:a', 'aac', '-b:a', '192k', '-f', 'segment', '-segment_time', '1', '-segment_format', 'mpegts', target];
+  return ['-hide_banner', '-loglevel', 'error', '-y', ...input, '-an', ...encoder, '-f', 'segment', '-segment_time', '1', '-segment_format', 'mpegts', target];
+}
+
+// Sound is stored apart from the video, so a late audio block can never hold the video back.
+function appendAudio(data) {
+  if (!gpuEngine) return;
+  if (!audioStore) audioStore = { startMs: Date.now() - (data.byteLength / PCM_BYTES_PER_SECOND) * 1000, bytes: 0 };
+  const bucket = Math.floor(audioStore.bytes / AUDIO_BUCKET_BYTES);
+  fs.appendFile(path.join(gpuDir(), `a${String(bucket).padStart(8, '0')}.pcm`), Buffer.from(data), (error) => { if (error) log(error.message); });
+  audioStore.bytes += data.byteLength;
+}
+
+function writeAudioSlice(fromMs, toMs, target) {
+  const align = (value) => Math.floor(value / 4) * 4;
+  const start = align(((fromMs - audioStore.startMs) / 1000) * PCM_BYTES_PER_SECOND);
+  const end = align(((toMs - audioStore.startMs) / 1000) * PCM_BYTES_PER_SECOND);
+  const output = fs.openSync(target, 'w');
+  if (start < 0) fs.writeSync(output, Buffer.alloc(-start));
+  for (let bucket = Math.floor(Math.max(0, start) / AUDIO_BUCKET_BYTES); bucket * AUDIO_BUCKET_BYTES < end; bucket++) {
+    const file = path.join(gpuDir(), `a${String(bucket).padStart(8, '0')}.pcm`);
+    if (!fs.existsSync(file)) continue;
+    const data = fs.readFileSync(file);
+    const base = bucket * AUDIO_BUCKET_BYTES;
+    fs.writeSync(output, data.subarray(Math.max(0, start - base), Math.max(0, Math.min(data.length, end - base))));
+  }
+  fs.closeSync(output);
 }
 
 function gpuSegments() {
-  try { return fs.readdirSync(gpuDir()).filter((name) => name.endsWith('.ts')).sort(); } catch { return []; }
+  try { return fs.readdirSync(gpuDir()).filter((name) => name.startsWith('seg') && name.endsWith('.ts')).sort(); } catch { return []; }
 }
 const segmentNumber = (name) => Number(name.slice(3, 11));
 
@@ -367,30 +393,59 @@ function trimGpuSegments() {
   let keepFrom = state.replay ? newest - settings.replaySeconds - 2 : newest - 1;
   if (recording && recording.firstSegment !== undefined) keepFrom = Math.min(keepFrom, recording.firstSegment);
   for (const name of files) if (segmentNumber(name) < keepFrom) fs.rmSync(path.join(gpuDir(), name), { force: true });
+  if (audioStore) {
+    const keepMs = videoStartMs + keepFrom * 1000;
+    const keepBucket = Math.floor((((keepMs - audioStore.startMs) / 1000) * PCM_BYTES_PER_SECOND) / AUDIO_BUCKET_BYTES) - 1;
+    for (const name of fs.readdirSync(gpuDir())) {
+      if (name.endsWith('.pcm') && name.startsWith('a') && Number(name.slice(1, 9)) < keepBucket) fs.rmSync(path.join(gpuDir(), name), { force: true });
+    }
+  }
+}
+
+async function tryGpuCandidate(candidate) {
+  const child = spawn(ffmpegPath(), gpuArgs(candidate), { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
+  gpuEngine = child;
+  let errors = '';
+  child.stderr.on('data', (data) => { errors = (errors + data).slice(-800); });
+  const exited = new Promise((resolve) => child.on('close', resolve));
+  child.on('error', (error) => { errors += error.message; });
+  child.on('close', (code) => {
+    if (gpuEngine !== child) return;
+    gpuEngine = null;
+    log(`GPU capture stopped (${code}): ${errors}`);
+  });
+  try { os.setPriority(child.pid, os.constants.priority.PRIORITY_HIGH); } catch (error) { log(error.message); }
+  const deadline = Date.now() + GPU_START_MS;
+  while (Date.now() < deadline && gpuEngine === child && !gpuSegments().length) await new Promise((resolve) => setTimeout(resolve, 50));
+  if (gpuEngine === child && gpuSegments().length) {
+    videoStartMs = Date.now();
+    log(`GPU capture running: ${candidate}`);
+    return true;
+  }
+  log(`GPU capture failed with ${candidate}: ${errors}`);
+  gpuEngine = null;
+  child.kill();
+  await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 500))]);
+  return false;
 }
 
 async function startGpuEngine() {
   if (gpuEngine) return;
   fs.rmSync(gpuDir(), { recursive: true, force: true });
   fs.mkdirSync(gpuDir(), { recursive: true });
+  audioStore = null;
   await command('startAudio', await captureConfig());
-  const child = spawn(ffmpegPath(), gpuArgs(), { windowsHide: true, stdio: ['pipe', 'ignore', 'pipe'] });
-  gpuEngine = child;
-  syncHelpers();
-  let errors = '';
-  child.stdin.on('error', () => {});
-  child.stderr.on('data', (data) => { errors = (errors + data).slice(-600); });
-  const exited = new Promise((resolve) => child.on('close', resolve));
-  child.on('error', (error) => { errors += error.message; });
-  child.on('close', () => { if (gpuEngine === child) gpuEngine = null; });
-  const deadline = Date.now() + GPU_START_MS;
-  while (Date.now() < deadline && gpuEngine === child && !gpuSegments().length) await new Promise((resolve) => setTimeout(resolve, 150));
-  if (gpuEngine === child && gpuSegments().length) return;
-  child.kill();
-  await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 500))]);
-  gpuEngine = null;
+  const candidates = workingCandidate ? [workingCandidate] : gpuCandidates();
+  for (const candidate of candidates) {
+    fs.rmSync(gpuDir(), { recursive: true, force: true });
+    fs.mkdirSync(gpuDir(), { recursive: true });
+    if (await tryGpuCandidate(candidate)) {
+      workingCandidate = candidate;
+      syncHelpers();
+      return;
+    }
+  }
   gpuFailed = true;
-  log(`GPU capture failed: ${errors}`);
   fs.rmSync(gpuDir(), { recursive: true, force: true });
   await command('stopAudio').catch(fail);
   syncHelpers();
@@ -409,15 +464,23 @@ async function stopGpuEngineIfIdle() {
 }
 
 async function joinSegments(names, target, seconds) {
-  const joined = path.join(gpuDir(), `join-${Date.now()}.ts`);
+  const joined = path.join(gpuDir(), `join-${Date.now()}.mpg`);
   const output = fs.createWriteStream(joined);
   for (const name of names) {
     if (!output.write(fs.readFileSync(path.join(gpuDir(), name)))) await new Promise((resolve) => output.once('drain', resolve));
   }
   await new Promise((resolve) => output.end(resolve));
+  const firstMs = videoStartMs + segmentNumber(names[0]) * 1000;
+  const lastMs = videoStartMs + (segmentNumber(names[names.length - 1]) + 1) * 1000;
+  const sound = `${joined}.pcm`;
+  const hasAudio = Boolean(audioStore);
+  if (hasAudio) writeAudioSlice(firstMs, lastMs, sound);
+  const audioInput = hasAudio ? ['-f', 's16le', '-ar', '48000', '-ac', '2', '-i', sound] : [];
+  const audioOutput = hasAudio ? ['-map', '0:v', '-map', '1:a', '-c:a', 'aac', '-b:a', '192k'] : [];
   const limit = seconds > 0 ? ['-t', String(seconds)] : [];
-  await runFfmpeg(['-i', joined, ...limit, '-c', 'copy', '-bsf:a', 'aac_adtstoasc', '-movflags', '+faststart', target]);
+  await runFfmpeg(['-f', 'mpegts', '-i', joined, ...audioInput, ...audioOutput, ...limit, '-c:v', 'copy', '-movflags', '+faststart', target]);
   fs.rmSync(joined, { force: true });
+  fs.rmSync(sound, { force: true });
 }
 
 async function startReplay() {
@@ -706,7 +769,7 @@ ipcMain.on('source-ended', () => {
   stopReplay().catch(fail);
 });
 ipcMain.on('mix-pcm', (_e, data) => {
-  if (gpuEngine && gpuEngine.stdin.writable) gpuEngine.stdin.write(Buffer.from(data));
+  appendAudio(data);
 });
 ipcMain.on('rec-failed', (_e, message) => { log(message); notify('recordProblem', 'warn', message); });
 
@@ -805,7 +868,7 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(async () => {
     settings = loadSettings();
     saveSettings();
-    gpuVendor = await detectGpu();
+    log(`Started ${app.getVersion()}`);
     fs.mkdirSync(settings.clipsFolder, { recursive: true });
     await createWindows();
     createTray();
