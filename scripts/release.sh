@@ -16,8 +16,8 @@ rm -rf dist
 npx electron-builder --win --x64 --dir
 (cd build && NSISDIR="$NSIS" "$NSIS/linux/makensis" -V2 installer.nsi)
 
-SHA=$(sha256sum dist/CLFED-Capture-Setup.exe | cut -d' ' -f1)
+SHA=$(sha256sum "dist/CLFED-Capture-Setup-$VERSION.exe" | cut -d' ' -f1)
 cat > dist/latest.json <<JSON
-{"version":"$VERSION","url":"https://github.com/$REPO/releases/download/v$VERSION/CLFED-Capture-Setup.exe","sha256":"$SHA"}
+{"version":"$VERSION","url":"https://github.com/$REPO/releases/download/v$VERSION/CLFED-Capture-Setup-$VERSION.exe","sha256":"$SHA"}
 JSON
-gh release create "v$VERSION" dist/CLFED-Capture-Setup.exe dist/latest.json --repo "$REPO" --title "CLFED Capture $VERSION" --notes "CLFED Capture $VERSION"
+gh release create "v$VERSION" "dist/CLFED-Capture-Setup-$VERSION.exe" dist/latest.json --repo "$REPO" --title "CLFED Capture $VERSION" --notes "CLFED Capture $VERSION"

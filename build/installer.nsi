@@ -2,7 +2,7 @@ Unicode true
 !include "MUI2.nsh"
 !define APP "CLFED Capture"
 Name "${APP}"
-OutFile "../dist/CLFED-Capture-Setup.exe"
+OutFile "../dist/CLFED-Capture-Setup-1.4.1.exe"
 InstallDir "$LOCALAPPDATA\Programs\${APP}"
 InstallDirRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP}" "InstallLocation"
 RequestExecutionLevel user
@@ -16,12 +16,12 @@ SetCompressor /SOLID lzma
 !insertmacro MUI_UNPAGE_CONFIRM
 !insertmacro MUI_UNPAGE_INSTFILES
 !insertmacro MUI_LANGUAGE "Arabic"
-VIProductVersion "1.4.0.0"
+VIProductVersion "1.4.1.0"
 VIAddVersionKey /LANG=${LANG_ARABIC} "ProductName" "${APP}"
 VIAddVersionKey /LANG=${LANG_ARABIC} "FileDescription" "${APP} Setup"
 VIAddVersionKey /LANG=${LANG_ARABIC} "CompanyName" "Talal (CLFED)"
 VIAddVersionKey /LANG=${LANG_ARABIC} "LegalCopyright" "Talal (CLFED)"
-VIAddVersionKey /LANG=${LANG_ARABIC} "FileVersion" "1.4.0"
+VIAddVersionKey /LANG=${LANG_ARABIC} "FileVersion" "1.4.1"
 Section
   IfSilent 0 +2
   Sleep 2500
@@ -34,7 +34,7 @@ Section
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP}" "DisplayName" "${APP}"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP}" "InstallLocation" "$INSTDIR"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP}" "Publisher" "Talal (CLFED)"
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP}" "DisplayVersion" "1.4.0"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP}" "DisplayVersion" "1.4.1"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP}" "DisplayIcon" "$INSTDIR\${APP}.exe"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP}" "UninstallString" "$\"$INSTDIR\Uninstall.exe$\""
   IfSilent 0 +2
