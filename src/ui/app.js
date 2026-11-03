@@ -353,6 +353,9 @@ async function loadMics(selected) {
   $('micDevice').replaceChildren(new Option(t('micDefault'), ''), ...mics.map((mic) => new Option(mic.label, mic.id, false, mic.id === selected)));
 }
 
+const showAudioOffset = () => { $('audioOffsetValue').textContent = `${$('audioOffset').value} ms`; };
+$('audioOffset').addEventListener('input', showAudioOffset);
+$('audioOffset').addEventListener('change', () => guard(() => api.setAudioOffset(Number($('audioOffset').value))));
 $('openAtLogin').addEventListener('change', async () => {
   const value = await guard(() => api.setStartup($('openAtLogin').checked));
   if (value === undefined) $('openAtLogin').checked = !$('openAtLogin').checked;
@@ -420,6 +423,8 @@ api.on('schedule-done', () => { $('startAt').value = ''; $('clearSchedule').hidd
   $('clipsFolder').value = s.clipsFolder;
   $('autoReplay').checked = s.autoReplay;
   $('onlyGaming').checked = s.onlyGaming;
+  $('audioOffset').value = s.audioOffsetMs;
+  showAudioOffset();
   $('showRecordTimer').checked = s.showRecordTimer;
   $('customGames').value = s.customGames;
   $('systemOn').checked = s.systemOn;

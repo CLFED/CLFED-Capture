@@ -107,6 +107,8 @@ input:not([type=checkbox]):not([type=range]),select{width:100%;padding:7px 10px;
 .folder{display:flex;gap:6px}
 .bind{flex:0 0 210px;padding:7px;background:var(--raised);text-align:center}.bind.listening{box-shadow:inset 0 0 0 1px var(--red);color:#ff8a9a}
 .savebar{padding:14px 0 4px}
+.sync{display:flex;align-items:center;gap:10px;flex:0 0 min(58%,360px)}.sync output{flex:0 0 70px;text-align:end}
+.plainGroup .note{grid-column:1}
 .mixer{display:flex;gap:1px;background:var(--edge)}
 .strip{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:8px;padding:14px;background:var(--graphite)}
 .strip b{font-weight:600;text-align:center}

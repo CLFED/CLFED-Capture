@@ -20,7 +20,8 @@ const AUDIO_BUCKET_BYTES = PCM_BYTES_PER_SECOND * 10;
 const testMode = !app.isPackaged && Boolean(process.env.CLFED_TEST_HOME);
 const UPDATE_PREFIX = 'https://github.com/CLFED/CLFED-Capture/releases/download/';
 const UPDATE_URL = (testMode && process.env.CLFED_UPDATE_URL) || 'https://github.com/CLFED/CLFED-Capture/releases/latest/download/latest.json';
-const GPU_BITS_PER_PIXEL = 0.18;
+const GPU_BITS_PER_PIXEL = 0.22;
+const GPU_MAX_BITRATE = 90000000;
 const UPDATE_CHECK_MS = 6 * 60 * 60 * 1000;
 const OVERLAY_SIZE = { width: 300, height: 76 };
 const TIMER_SIZE = { width: 130, height: 42 };
@@ -99,7 +100,7 @@ function setState(next) { state = { ...state, ...next }; send('state', state); u
 function loadSettings() {
   const defaults = {
     clipsFolder: path.join(app.getPath('videos'), 'CLFED Capture'), replaySeconds: 60, resolution: '1080', fps: 60,
-    monitorValue: '', showRecordTimer: true, captureMode: 'screen', windowName: '', onlyGaming: false, customGames: '',
+    monitorValue: '', showRecordTimer: true, audioOffsetMs: 200, captureMode: 'screen', windowName: '', onlyGaming: false, customGames: '',
     audioMode: 'separate', systemOn: true, systemVolume: 100, micDevice: '', micVolume: 100, discordVolume: 100, appsVolume: 100,
     hotkeys: { ...DEFAULT_HOTKEYS }, autoReplay: true, mic: true, recordSeconds: 0, lastRecordSeconds: 60, storageLimitGB: 0, openAtLogin: false,
     language: app.getLocale().startsWith('ar') ? 'ar' : 'en',
@@ -111,7 +112,7 @@ function loadSettings() {
     if (saved.recordSeconds) saved.lastRecordSeconds = saved.recordSeconds;
   }
   const merged = { ...defaults, ...saved };
-  merged.fps = Math.min(merged.fps, 60);
+  merged.fps = Math.min(merged.fps, 120);
   delete merged.recordMinutes;
   delete merged.quality;
   if (merged.customSoundFile) fs.rmSync(merged.customSoundFile, { force: true });
@@ -331,26 +332,25 @@ function captureSize() {
 // Tried in order, because a failed start is the only reliable sign of what the PC supports.
 function gpuCandidates() {
   if (testMode) return ['test'];
-  return captureSize().scale < 1 ? ['nvenc-scaled', 'nvenc', 'amf'] : ['nvenc', 'amf'];
+  return ['nvenc', 'nvenc-basic', 'amf'];
 }
 
 function gpuArgs(candidate) {
   const target = path.join(gpuDir(), 'seg%08d.ts');
-  const { display, width, height } = captureSize();
+  const { display } = captureSize();
   const fps = settings.fps;
-  const bitrate = String(Math.round(width * height * fps * GPU_BITS_PER_PIXEL));
+  const bitrate = Math.min(GPU_MAX_BITRATE, Math.round(display.width * display.height * fps * GPU_BITS_PER_PIXEL));
   let input;
   let encoder;
   if (candidate === 'test') {
     input = process.env.CLFED_TEST_VIDEO_ARGS.replace('{DISPLAY}', process.env.DISPLAY || ':0').split('|');
-    encoder = ['-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', '-g', String(fps), '-b:v', bitrate];
+    encoder = ['-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', '-g', String(fps), '-b:v', String(bitrate)];
   } else {
-    let filter = `ddagrab=output_idx=${display.index}:framerate=${fps}`;
-    if (candidate === 'nvenc-scaled') filter += `,hwmap=derive_device=cuda,scale_cuda=${width}:${height}`;
-    input = ['-f', 'lavfi', '-i', filter];
-    encoder = candidate === 'amf'
-      ? ['-c:v', 'h264_amf', '-usage', 'lowlatency', '-quality', 'speed', '-rc', 'cbr', '-b:v', bitrate, '-g', String(fps), '-bf', '0']
-      : ['-c:v', 'h264_nvenc', '-preset', 'p2', '-tune', 'll', '-rc', 'cbr', '-b:v', bitrate, '-maxrate', bitrate, '-bufsize', bitrate, '-g', String(fps), '-bf', '0', '-no-scenecut', '1'];
+    input = ['-f', 'lavfi', '-i', `ddagrab=output_idx=${display.index}:framerate=${fps}`];
+    const shared = ['-b:v', String(bitrate), '-g', String(fps), '-bf', '0'];
+    if (candidate === 'amf') encoder = ['-c:v', 'h264_amf', '-usage', 'lowlatency', '-quality', 'speed', '-rc', 'cbr', ...shared];
+    else if (candidate === 'nvenc-basic') encoder = ['-c:v', 'h264_nvenc', '-preset', 'p2', '-tune', 'll', '-rc', 'cbr', '-no-scenecut', '1', ...shared];
+    else encoder = ['-c:v', 'h264_nvenc', '-preset', 'p4', '-tune', 'hq', '-profile:v', 'high', '-rc', 'vbr', '-cq', '19', '-spatial-aq', '1', '-maxrate', String(Math.round(bitrate * 1.5)), '-bufsize', String(bitrate * 2), '-no-scenecut', '1', ...shared];
   }
   return ['-hide_banner', '-loglevel', 'error', '-y', ...input, '-an', ...encoder, '-f', 'segment', '-segment_time', '1', '-segment_format', 'mpegts', target];
 }
@@ -419,7 +419,7 @@ async function tryGpuCandidate(candidate) {
   while (Date.now() < deadline && gpuEngine === child && !gpuSegments().length) await new Promise((resolve) => setTimeout(resolve, 50));
   if (gpuEngine === child && gpuSegments().length) {
     videoStartMs = Date.now();
-    log(`GPU capture running: ${candidate}`);
+    log(`GPU capture running: ${candidate}, ${captureSize().display.width}x${captureSize().display.height}, ${settings.fps} fps`);
     return true;
   }
   log(`GPU capture failed with ${candidate}: ${errors}`);
@@ -474,11 +474,25 @@ async function joinSegments(names, target, seconds) {
   const lastMs = videoStartMs + (segmentNumber(names[names.length - 1]) + 1) * 1000;
   const sound = `${joined}.pcm`;
   const hasAudio = Boolean(audioStore);
-  if (hasAudio) writeAudioSlice(firstMs, lastMs, sound);
+  if (hasAudio) writeAudioSlice(firstMs + settings.audioOffsetMs, lastMs + settings.audioOffsetMs, sound);
   const audioInput = hasAudio ? ['-f', 's16le', '-ar', '48000', '-ac', '2', '-i', sound] : [];
   const audioOutput = hasAudio ? ['-map', '0:v', '-map', '1:a', '-c:a', 'aac', '-b:a', '192k'] : [];
   const limit = seconds > 0 ? ['-t', String(seconds)] : [];
-  await runFfmpeg(['-f', 'mpegts', '-i', joined, ...audioInput, ...audioOutput, ...limit, '-c:v', 'copy', '-movflags', '+faststart', target]);
+  const copyArgs = ['-f', 'mpegts', '-i', joined, ...audioInput, ...audioOutput, ...limit, '-c:v', 'copy', '-movflags', '+faststart', target];
+  const { scale, width, height } = captureSize();
+  if (scale < 1 && !testMode && workingCandidate.startsWith('nvenc')) {
+    // The capture stays at screen size. The chosen size is applied on the GPU when the clip is saved.
+    const bitrate = String(Math.min(GPU_MAX_BITRATE, Math.round(width * height * settings.fps * GPU_BITS_PER_PIXEL)));
+    try {
+      await runFfmpeg(['-c:v', 'h264_cuvid', '-resize', `${width}x${height}`, '-f', 'mpegts', '-i', joined, ...audioInput, ...audioOutput, ...limit,
+        '-c:v', 'h264_nvenc', '-preset', 'p4', '-tune', 'hq', '-rc', 'vbr', '-cq', '20', '-b:v', bitrate, '-movflags', '+faststart', target]);
+    } catch (error) {
+      log(`Saved at screen size: ${error.message}`);
+      await runFfmpeg(copyArgs);
+    }
+  } else {
+    await runFfmpeg(copyArgs);
+  }
   fs.rmSync(joined, { force: true });
   fs.rmSync(sound, { force: true });
 }
@@ -788,6 +802,10 @@ ipcMain.handle('set-language', (_e, language) => {
   renderTrayMenu();
 });
 ipcMain.handle('init', () => ({ settings, state, monitors: monitors(), author: 'Talal (CLFED)', version: app.getVersion(), defaults: DEFAULT_HOTKEYS }));
+ipcMain.handle('set-audio-offset', (_e, value) => {
+  settings.audioOffsetMs = Math.min(800, Math.max(-800, Number(value) || 0));
+  saveSettings();
+});
 ipcMain.handle('set-startup', (_e, enabled) => {
   settings.openAtLogin = Boolean(enabled);
   app.setLoginItemSettings({ openAtLogin: settings.openAtLogin, args: ['--hidden'] });

@@ -68,7 +68,7 @@
         <label class="setting" id="monitorRow"><span data-t="monitor"></span><select id="monitor"></select></label>
         <label class="setting" id="windowRow" hidden><span data-t="appWindow"></span><span class="folder"><select id="windowName"></select><button type="button" id="refreshWindows" data-t="refresh"></button></span></label>
         <label class="setting"><span data-t="resolution"></span><select id="resolution"><option value="720">720p (1280×720)</option><option value="1080">1080p (1920×1080)</option><option value="2k">2K (2048×1080)</option><option value="1440">1440p (2560×1440)</option></select></label>
-        <label class="setting"><span data-t="fps"></span><select id="fps"><option>30</option><option>60</option></select></label>
+        <label class="setting"><span data-t="fps"></span><select id="fps"><option>30</option><option>60</option><option>120</option></select></label>
         <label class="setting"><span data-t="showRecordTimer"></span><input id="showRecordTimer" type="checkbox"></label>
       </div>
       <div class="group">
@@ -92,6 +92,10 @@
       <div class="strip" id="discordGroup"><div class="stripHead"><b data-t="discordSound"></b></div><input data-volume="discord" type="range" min="0" max="200" step="5" dir="ltr"><output></output></div>
       <div class="strip" id="appsGroup"><div class="stripHead"><b data-t="appsSound"></b></div><input data-volume="apps" type="range" min="0" max="200" step="5" dir="ltr"><output></output></div>
       <div class="strip" id="micGroup"><div class="stripHead"><b data-t="microphone"></b><input id="mic" type="checkbox"></div><input data-volume="mic" type="range" min="0" max="200" step="5" dir="ltr"><output></output><select id="micDevice" aria-label="Microphone"></select></div>
+    </div>
+    <div class="group plainGroup">
+      <label class="setting"><span data-t="audioSync"></span><span class="sync"><input id="audioOffset" type="range" min="-800" max="800" step="10" dir="ltr"><output id="audioOffsetValue" dir="ltr"></output></span></label>
+      <p class="note" data-t="audioSyncHint"></p>
     </div>
   </section>
   <section id="hotkeys" class="page">

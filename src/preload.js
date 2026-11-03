@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('clfed', {
   apply: (settings) => ipcRenderer.invoke('apply', settings),
   saveTiming: (timing) => ipcRenderer.invoke('save-timing', timing),
   setLanguage: (language) => ipcRenderer.invoke('set-language', language),
+  setAudioOffset: (value) => ipcRenderer.invoke('set-audio-offset', value),
   setStartup: (enabled) => ipcRenderer.invoke('set-startup', enabled),
   setVolume: (name, value) => ipcRenderer.invoke('set-volume', name, value),
   setHotkey: (name, accelerator) => ipcRenderer.invoke('set-hotkey', name, accelerator),
