@@ -13,8 +13,8 @@ exports.default = async ({ appOutDir, packager }) => {
     ProductName: 'CLFED Capture', FileDescription: 'CLFED Capture', CompanyName: 'Talal (CLFED)',
     LegalCopyright: 'Talal (CLFED)', OriginalFilename: 'CLFED Capture.exe', InternalName: 'CLFED Capture',
   });
-  version.setFileVersion(1, 4, 8, 0, 1033);
-  version.setProductVersion(1, 4, 8, 0, 1033);
+  version.setFileVersion(1, 4, 9, 0, 1033);
+  version.setProductVersion(1, 4, 9, 0, 1033);
   version.outputToResourceEntries(res.entries);
   res.outputResource(image);
   fs.writeFileSync(exe, Buffer.from(image.generate()));

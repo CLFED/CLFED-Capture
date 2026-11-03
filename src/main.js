@@ -20,7 +20,7 @@ const AUDIO_BUCKET_BYTES = PCM_BYTES_PER_SECOND * 10;
 const testMode = !app.isPackaged && Boolean(process.env.CLFED_TEST_HOME);
 const UPDATE_PREFIX = 'https://github.com/CLFED/CLFED-Capture/releases/download/';
 const UPDATE_URL = (testMode && process.env.CLFED_UPDATE_URL) || 'https://github.com/CLFED/CLFED-Capture/releases/latest/download/latest.json';
-const GPU_BITS_PER_PIXEL = 0.22;
+const GPU_BITS_PER_PIXEL = 0.18;
 const GPU_MAX_BITRATE = 90000000;
 const UPDATE_CHECK_MS = 6 * 60 * 60 * 1000;
 const OVERLAY_SIZE = { width: 300, height: 76 };
@@ -112,7 +112,7 @@ function loadSettings() {
     if (saved.recordSeconds) saved.lastRecordSeconds = saved.recordSeconds;
   }
   const merged = { ...defaults, ...saved };
-  merged.fps = Math.min(merged.fps, 120);
+  merged.fps = Math.min(merged.fps, 60);
   delete merged.recordMinutes;
   delete merged.quality;
   if (merged.customSoundFile) fs.rmSync(merged.customSoundFile, { force: true });
@@ -332,7 +332,7 @@ function captureSize() {
 // Tried in order, because a failed start is the only reliable sign of what the PC supports.
 function gpuCandidates() {
   if (testMode) return ['test'];
-  return ['nvenc', 'nvenc-basic', 'amf'];
+  return ['nvenc', 'amf'];
 }
 
 function gpuArgs(candidate) {
@@ -349,8 +349,7 @@ function gpuArgs(candidate) {
     input = ['-f', 'lavfi', '-i', `ddagrab=output_idx=${display.index}:framerate=${fps}`];
     const shared = ['-b:v', String(bitrate), '-g', String(fps), '-bf', '0'];
     if (candidate === 'amf') encoder = ['-c:v', 'h264_amf', '-usage', 'lowlatency', '-quality', 'speed', '-rc', 'cbr', ...shared];
-    else if (candidate === 'nvenc-basic') encoder = ['-c:v', 'h264_nvenc', '-preset', 'p2', '-tune', 'll', '-rc', 'cbr', '-no-scenecut', '1', ...shared];
-    else encoder = ['-c:v', 'h264_nvenc', '-preset', 'p4', '-tune', 'hq', '-profile:v', 'high', '-rc', 'vbr', '-cq', '19', '-spatial-aq', '1', '-maxrate', String(Math.round(bitrate * 1.5)), '-bufsize', String(bitrate * 2), '-no-scenecut', '1', ...shared];
+    else encoder = ['-c:v', 'h264_nvenc', '-preset', 'p2', '-tune', 'll', '-rc', 'cbr', '-maxrate', String(bitrate), '-bufsize', String(bitrate), '-no-scenecut', '1', ...shared];
   }
   return ['-hide_banner', '-loglevel', 'error', '-y', ...input, '-an', ...encoder, '-f', 'segment', '-segment_time', '1', '-segment_format', 'mpegts', target];
 }
@@ -478,21 +477,7 @@ async function joinSegments(names, target, seconds) {
   const audioInput = hasAudio ? ['-f', 's16le', '-ar', '48000', '-ac', '2', '-i', sound] : [];
   const audioOutput = hasAudio ? ['-map', '0:v', '-map', '1:a', '-c:a', 'aac', '-b:a', '192k'] : [];
   const limit = seconds > 0 ? ['-t', String(seconds)] : [];
-  const copyArgs = ['-f', 'mpegts', '-i', joined, ...audioInput, ...audioOutput, ...limit, '-c:v', 'copy', '-movflags', '+faststart', target];
-  const { scale, width, height } = captureSize();
-  if (scale < 1 && !testMode && workingCandidate.startsWith('nvenc')) {
-    // The capture stays at screen size. The chosen size is applied on the GPU when the clip is saved.
-    const bitrate = String(Math.min(GPU_MAX_BITRATE, Math.round(width * height * settings.fps * GPU_BITS_PER_PIXEL)));
-    try {
-      await runFfmpeg(['-c:v', 'h264_cuvid', '-resize', `${width}x${height}`, '-f', 'mpegts', '-i', joined, ...audioInput, ...audioOutput, ...limit,
-        '-c:v', 'h264_nvenc', '-preset', 'p4', '-tune', 'hq', '-rc', 'vbr', '-cq', '20', '-b:v', bitrate, '-movflags', '+faststart', target]);
-    } catch (error) {
-      log(`Saved at screen size: ${error.message}`);
-      await runFfmpeg(copyArgs);
-    }
-  } else {
-    await runFfmpeg(copyArgs);
-  }
+  await runFfmpeg(['-f', 'mpegts', '-i', joined, ...audioInput, ...audioOutput, ...limit, '-c:v', 'copy', '-movflags', '+faststart', target]);
   fs.rmSync(joined, { force: true });
   fs.rmSync(sound, { force: true });
 }
