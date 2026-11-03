@@ -423,7 +423,7 @@ api.on('schedule-done', () => { $('startAt').value = ''; $('clearSchedule').hidd
   $('clipsFolder').value = s.clipsFolder;
   $('autoReplay').checked = s.autoReplay;
   $('onlyGaming').checked = s.onlyGaming;
-  $('audioOffset').value = s.audioOffsetMs;
+  $('audioOffset').value = s.audioSyncMs;
   showAudioOffset();
   $('showRecordTimer').checked = s.showRecordTimer;
   $('customGames').value = s.customGames;

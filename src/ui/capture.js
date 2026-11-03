@@ -90,7 +90,8 @@ async function ensureAudio(config, desktopAudio = []) {
   };
   if (config.audioMode === 'separate') {
     connect(systemTracks, addGain('fallback', 0, master));
-    for (const [name, volume] of [['apps', config.appsVolume], ['discord', config.discordVolume]]) {
+    // With GPU capture these two sources go straight to the main process instead.
+    for (const [name, volume] of config.tap ? [] : [['apps', config.appsVolume], ['discord', config.discordVolume]]) {
       const node = new AudioWorkletNode(audioContext, 'pcm-source', { numberOfInputs: 0, outputChannelCount: [2] });
       node.connect(addGain(name, volume, master));
       pcmNodes[name] = node;

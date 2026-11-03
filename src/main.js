@@ -17,6 +17,7 @@ const GPU_START_MS = 8000;
 const GPU_RETRY = 'gpu-retry';
 const PCM_BYTES_PER_SECOND = 192000;
 const AUDIO_BUCKET_BYTES = PCM_BYTES_PER_SECOND * 10;
+const AUDIO_RESYNC_BYTES = 9600;
 const testMode = !app.isPackaged && Boolean(process.env.CLFED_TEST_HOME);
 const UPDATE_PREFIX = 'https://github.com/CLFED/CLFED-Capture/releases/download/';
 const UPDATE_URL = (testMode && process.env.CLFED_UPDATE_URL) || 'https://github.com/CLFED/CLFED-Capture/releases/latest/download/latest.json';
@@ -46,7 +47,7 @@ let captureReady = null;
 let updateInfo = null;
 let gpuEngine = null;
 let gpuFailed = false;
-let audioStore = null;
+let audioTracks = {};
 let workingCandidate = '';
 let videoStartMs = 0;
 let overlayWin = null;
@@ -100,7 +101,7 @@ function setState(next) { state = { ...state, ...next }; send('state', state); u
 function loadSettings() {
   const defaults = {
     clipsFolder: path.join(app.getPath('videos'), 'CLFED Capture'), replaySeconds: 60, resolution: '1080', fps: 60,
-    monitorValue: '', showRecordTimer: true, audioOffsetMs: 200, captureMode: 'screen', windowName: '', onlyGaming: false, customGames: '',
+    monitorValue: '', showRecordTimer: true, audioSyncMs: -80, captureMode: 'screen', windowName: '', onlyGaming: false, customGames: '',
     audioMode: 'separate', systemOn: true, systemVolume: 100, micDevice: '', micVolume: 100, discordVolume: 100, appsVolume: 100,
     hotkeys: { ...DEFAULT_HOTKEYS }, autoReplay: true, mic: true, recordSeconds: 0, lastRecordSeconds: 60, storageLimitGB: 0, openAtLogin: false,
     language: app.getLocale().startsWith('ar') ? 'ar' : 'en',
@@ -115,6 +116,7 @@ function loadSettings() {
   merged.fps = Math.min(merged.fps, 60);
   delete merged.recordMinutes;
   delete merged.quality;
+  delete merged.audioOffsetMs;
   if (merged.customSoundFile) fs.rmSync(merged.customSoundFile, { force: true });
   for (const key of ['alertSound', 'customSoundFile', 'customSoundName', 'customSoundVersion']) delete merged[key];
   return merged;
@@ -190,9 +192,11 @@ function stopHelpers() {
 function startHelper(name, mode) {
   const child = spawn(helperPath(), [mode, ...DISCORD_EXES], { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
   helpers[name] = child;
+  try { os.setPriority(child.pid, os.constants.priority.PRIORITY_HIGH); } catch (error) { log(error.message); }
   let pending = [];
   let pendingBytes = 0;
   child.stdout.on('data', (data) => {
+    if (gpuEngine) { appendAudio(name, data); return; }
     pending.push(data);
     pendingBytes += data.length;
     if (pendingBytes < PCM_BATCH_BYTES) return;
@@ -356,24 +360,61 @@ function gpuArgs(candidate) {
   return ['-hide_banner', '-loglevel', 'error', '-y', ...input, '-an', ...encoder, '-f', 'segment', '-segment_time', '1', '-segment_format', 'mpegts', target];
 }
 
-// Sound is stored apart from the video, so a late audio block can never hold the video back.
-function appendAudio(data) {
+// Each sound source is stored with its real arrival time, so a slow game cannot push it out of step.
+function trackFile(track, bucket) {
+  return path.join(gpuDir(), `a-${track.name}-${String(bucket).padStart(8, '0')}.pcm`);
+}
+function writeTrack(track, data) {
+  const bucket = Math.floor(track.bytes / AUDIO_BUCKET_BYTES);
+  if (bucket !== track.bucket) {
+    if (track.stream) track.stream.end();
+    track.bucket = bucket;
+    track.stream = fs.createWriteStream(trackFile(track, bucket), { flags: 'a' });
+    track.stream.on('error', (error) => log(error.message));
+  }
+  track.stream.write(data);
+  track.bytes += data.length;
+}
+function trackGain(name) {
+  if (name === 'mix') return 1;
+  return settings[`${name}Volume`] / 100;
+}
+function appendAudio(name, chunk) {
   if (!gpuEngine) return;
-  if (!audioStore) audioStore = { startMs: Date.now() - (data.byteLength / PCM_BYTES_PER_SECOND) * 1000, bytes: 0 };
-  const bucket = Math.floor(audioStore.bytes / AUDIO_BUCKET_BYTES);
-  fs.appendFile(path.join(gpuDir(), `a${String(bucket).padStart(8, '0')}.pcm`), Buffer.from(data), (error) => { if (error) log(error.message); });
-  audioStore.bytes += data.byteLength;
+  let track = audioTracks[name];
+  const bytes = Buffer.from(chunk);
+  if (!track) {
+    track = { name, startMs: Date.now() - (bytes.length / PCM_BYTES_PER_SECOND) * 1000, bytes: 0, bucket: -1, stream: null, carry: Buffer.alloc(0) };
+    audioTracks[name] = track;
+  }
+  const whole = Buffer.concat([track.carry, bytes]);
+  const usable = whole.length - (whole.length % 4);
+  track.carry = whole.subarray(usable);
+  const data = Buffer.from(whole.subarray(0, usable));
+  const gain = trackGain(name);
+  if (gain !== 1) {
+    for (let i = 0; i + 1 < data.length; i += 2) data.writeInt16LE(Math.max(-32768, Math.min(32767, Math.round(data.readInt16LE(i) * gain))), i);
+  }
+  // Sources send nothing during silence, and a busy PC can deliver late. The clock decides the position.
+  const expected = Math.floor((((Date.now() - track.startMs) / 1000) * PCM_BYTES_PER_SECOND) / 4) * 4 - data.length;
+  const gap = expected - track.bytes;
+  if (gap > AUDIO_RESYNC_BYTES) writeTrack(track, Buffer.alloc(Math.min(gap, AUDIO_BUCKET_BYTES)));
+  writeTrack(track, data);
+}
+function closeAudioTracks() {
+  for (const track of Object.values(audioTracks)) if (track.stream) track.stream.end();
+  audioTracks = {};
 }
 
-async function writeAudioSlice(fromMs, toMs, target) {
+async function writeAudioSlice(track, fromMs, toMs, target) {
   const align = (value) => Math.floor(value / 4) * 4;
-  const start = align(((fromMs - audioStore.startMs) / 1000) * PCM_BYTES_PER_SECOND);
-  const end = align(((toMs - audioStore.startMs) / 1000) * PCM_BYTES_PER_SECOND);
+  const start = align(((fromMs - track.startMs) / 1000) * PCM_BYTES_PER_SECOND);
+  const end = align(((toMs - track.startMs) / 1000) * PCM_BYTES_PER_SECOND);
   const output = await fs.promises.open(target, 'w');
   try {
     if (start < 0) await output.write(Buffer.alloc(-start));
     for (let bucket = Math.floor(Math.max(0, start) / AUDIO_BUCKET_BYTES); bucket * AUDIO_BUCKET_BYTES < end; bucket++) {
-      const data = await fs.promises.readFile(path.join(gpuDir(), `a${String(bucket).padStart(8, '0')}.pcm`)).catch(() => null);
+      const data = await fs.promises.readFile(trackFile(track, bucket)).catch(() => null);
       if (!data) continue;
       const base = bucket * AUDIO_BUCKET_BYTES;
       await output.write(data.subarray(Math.max(0, start - base), Math.max(0, Math.min(data.length, end - base))));
@@ -394,12 +435,11 @@ function trimGpuSegments() {
   let keepFrom = state.replay ? newest - settings.replaySeconds - 2 : newest - 1;
   if (recording && recording.firstSegment !== undefined) keepFrom = Math.min(keepFrom, recording.firstSegment);
   for (const name of files) if (segmentNumber(name) < keepFrom) fs.rmSync(path.join(gpuDir(), name), { force: true });
-  if (audioStore) {
-    const keepMs = videoStartMs + keepFrom * 1000;
-    const keepBucket = Math.floor((((keepMs - audioStore.startMs) / 1000) * PCM_BYTES_PER_SECOND) / AUDIO_BUCKET_BYTES) - 1;
-    for (const name of fs.readdirSync(gpuDir())) {
-      if (name.endsWith('.pcm') && name.startsWith('a') && Number(name.slice(1, 9)) < keepBucket) fs.rmSync(path.join(gpuDir(), name), { force: true });
-    }
+  const keepMs = videoStartMs + keepFrom * 1000;
+  for (const track of Object.values(audioTracks)) {
+    const keepBucket = Math.floor((((keepMs - track.startMs) / 1000) * PCM_BYTES_PER_SECOND) / AUDIO_BUCKET_BYTES) - 1;
+    for (let bucket = track.trimmed || 0; bucket < keepBucket; bucket++) fs.rmSync(trackFile(track, bucket), { force: true });
+    track.trimmed = Math.max(track.trimmed || 0, keepBucket);
   }
 }
 
@@ -434,7 +474,7 @@ async function startGpuEngine() {
   if (gpuEngine) return;
   fs.rmSync(gpuDir(), { recursive: true, force: true });
   fs.mkdirSync(gpuDir(), { recursive: true });
-  audioStore = null;
+  closeAudioTracks();
   await command('startAudio', await captureConfig());
   const candidates = workingCandidate ? [workingCandidate] : gpuCandidates();
   for (const candidate of candidates) {
@@ -461,6 +501,7 @@ async function stopGpuEngineIfIdle() {
   child.kill();
   await command('stopAudio').catch(fail);
   syncHelpers();
+  closeAudioTracks();
   fs.rmSync(gpuDir(), { recursive: true, force: true });
 }
 
@@ -473,15 +514,22 @@ async function joinSegments(names, target, seconds) {
   await new Promise((resolve) => output.end(resolve));
   const firstMs = videoStartMs + segmentNumber(names[0]) * 1000;
   const lastMs = videoStartMs + (segmentNumber(names[names.length - 1]) + 1) * 1000;
-  const sound = `${joined}.pcm`;
-  const hasAudio = Boolean(audioStore);
-  if (hasAudio) await writeAudioSlice(firstMs + settings.audioOffsetMs, lastMs + settings.audioOffsetMs, sound);
-  const audioInput = hasAudio ? ['-f', 's16le', '-ar', '48000', '-ac', '2', '-i', sound] : [];
-  const audioOutput = hasAudio ? ['-map', '0:v', '-map', '1:a', '-c:a', 'aac', '-b:a', '192k'] : [];
+  const tracks = Object.values(audioTracks);
+  const inputs = [];
+  const sounds = [];
+  for (const track of tracks) {
+    const sound = `${joined}.${track.name}.pcm`;
+    await writeAudioSlice(track, firstMs + settings.audioSyncMs, lastMs + settings.audioSyncMs, sound);
+    sounds.push(sound);
+    inputs.push('-f', 's16le', '-ar', '48000', '-ac', '2', '-i', sound);
+  }
+  const labels = tracks.map((_track, index) => `[${index + 1}:a]`).join('');
+  const mixing = tracks.length > 1 ? `${labels}amix=inputs=${tracks.length}:normalize=0:duration=longest,` : labels;
+  const audioOutput = tracks.length ? ['-filter_complex', `${mixing}alimiter=limit=0.95[sound]`, '-map', '0:v', '-map', '[sound]', '-c:a', 'aac', '-b:a', '192k'] : [];
   const limit = seconds > 0 ? ['-t', String(seconds)] : [];
-  await runFfmpeg(['-f', 'mpegts', '-i', joined, ...audioInput, ...audioOutput, ...limit, '-c:v', 'copy', '-movflags', '+faststart', target]);
+  await runFfmpeg(['-f', 'mpegts', '-i', joined, ...inputs, ...audioOutput, ...limit, '-c:v', 'copy', '-movflags', '+faststart', target]);
   fs.rmSync(joined, { force: true });
-  fs.rmSync(sound, { force: true });
+  sounds.forEach((sound) => fs.rmSync(sound, { force: true }));
 }
 
 async function startReplay() {
@@ -770,7 +818,7 @@ ipcMain.on('source-ended', () => {
   stopReplay().catch(fail);
 });
 ipcMain.on('mix-pcm', (_e, data) => {
-  appendAudio(data);
+  appendAudio('mix', data);
 });
 ipcMain.on('rec-failed', (_e, message) => { log(message); notify('recordProblem', 'warn', message); });
 
@@ -790,7 +838,7 @@ ipcMain.handle('set-language', (_e, language) => {
 });
 ipcMain.handle('init', () => ({ settings, state, monitors: monitors(), author: 'Talal (CLFED)', version: app.getVersion(), defaults: DEFAULT_HOTKEYS }));
 ipcMain.handle('set-audio-offset', (_e, value) => {
-  settings.audioOffsetMs = Math.min(800, Math.max(-800, Number(value) || 0));
+  settings.audioSyncMs = Math.min(800, Math.max(-800, Number(value) || 0));
   saveSettings();
 });
 ipcMain.handle('set-startup', (_e, enabled) => {
@@ -873,6 +921,7 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(async () => {
     settings = loadSettings();
     saveSettings();
+    try { os.setPriority(process.pid, os.constants.priority.PRIORITY_ABOVE_NORMAL); } catch (error) { log(error.message); }
     log(`Started ${app.getVersion()}`);
     fs.mkdirSync(settings.clipsFolder, { recursive: true });
     await createWindows();
