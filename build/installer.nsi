@@ -4,7 +4,7 @@ Unicode true
 Var Auto
 !define APP "CLFED Capture"
 Name "${APP}"
-OutFile "../dist/CLFED-Capture-Setup-1.4.2.exe"
+OutFile "../dist/CLFED-Capture-Setup-1.4.3.exe"
 InstallDir "$LOCALAPPDATA\Programs\${APP}"
 InstallDirRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP}" "InstallLocation"
 RequestExecutionLevel user
@@ -20,12 +20,12 @@ SetCompressor /SOLID lzma
 !insertmacro MUI_UNPAGE_CONFIRM
 !insertmacro MUI_UNPAGE_INSTFILES
 !insertmacro MUI_LANGUAGE "Arabic"
-VIProductVersion "1.4.2.0"
+VIProductVersion "1.4.3.0"
 VIAddVersionKey /LANG=${LANG_ARABIC} "ProductName" "${APP}"
 VIAddVersionKey /LANG=${LANG_ARABIC} "FileDescription" "${APP} Setup"
 VIAddVersionKey /LANG=${LANG_ARABIC} "CompanyName" "Talal (CLFED)"
 VIAddVersionKey /LANG=${LANG_ARABIC} "LegalCopyright" "Talal (CLFED)"
-VIAddVersionKey /LANG=${LANG_ARABIC} "FileVersion" "1.4.2"
+VIAddVersionKey /LANG=${LANG_ARABIC} "FileVersion" "1.4.3"
 Function .onInit
   ${GetParameters} $R0
   ClearErrors
@@ -49,13 +49,18 @@ Section
   SetOutPath "$INSTDIR"
   File /r "../dist/win-unpacked/*.*"
   WriteUninstaller "$INSTDIR\Uninstall.exe"
-  CreateShortcut "$DESKTOP\${APP}.lnk" "$INSTDIR\${APP}.exe"
-  CreateShortcut "$SMPROGRAMS\${APP}.lnk" "$INSTDIR\${APP}.exe"
+  # A new icon file name makes Windows drop its cached picture on every update.
+  Delete "$INSTDIR\clfed-*.ico"
+  File "/oname=$INSTDIR\clfed-1.4.3.ico" "icon.ico"
+  CreateShortcut "$DESKTOP\${APP}.lnk" "$INSTDIR\${APP}.exe" "" "$INSTDIR\clfed-1.4.3.ico"
+  CreateShortcut "$SMPROGRAMS\${APP}.lnk" "$INSTDIR\${APP}.exe" "" "$INSTDIR\clfed-1.4.3.ico"
+  nsExec::Exec 'ie4uinit.exe -show'
+  System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)'
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP}" "DisplayName" "${APP}"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP}" "InstallLocation" "$INSTDIR"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP}" "Publisher" "Talal (CLFED)"
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP}" "DisplayVersion" "1.4.2"
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP}" "DisplayIcon" "$INSTDIR\${APP}.exe"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP}" "DisplayVersion" "1.4.3"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP}" "DisplayIcon" "$INSTDIR\clfed-1.4.3.ico"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP}" "UninstallString" "$\"$INSTDIR\Uninstall.exe$\""
   StrCmp $Auto "1" launch
   IfSilent launch done
