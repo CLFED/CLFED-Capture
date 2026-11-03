@@ -9,7 +9,7 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid 
 [hidden]{display:none!important}
 aside{width:224px;flex:none;display:flex;flex-direction:column;padding:18px 12px 14px;background:var(--side);border-inline-end:1px solid #2a2520}
 .brand{display:flex;align-items:center;gap:10px;padding:0 8px;margin-bottom:20px}
-.brand img{width:36px;height:36px;border-radius:50%}
+.brand img{width:36px;height:36px;border-radius:8px}
 .brand span{font-size:21px;line-height:1;white-space:nowrap}
 .brand b{font-weight:700}
 .brand em{font-family:Georgia,"Times New Roman",serif;color:var(--accent);margin-inline-start:4px}
