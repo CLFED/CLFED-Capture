@@ -2,6 +2,7 @@
 const I18N = {
   ar: {
     updateAvailable: 'يوجد تحديث جديد', updateNow: 'تحديث', updateDownloading: 'جاري تنزيل التحديث', updateInstalling: 'جاري تثبيت التحديث...', updateFailed: 'فشل التحديث، جرّب مرة ثانية',
+    navGroupRecording: 'التسجيل', navGroupControls: 'التحكم', navGroupApp: 'التطبيق', whatToCapture: 'ماذا تسجل',
     gpuFallback: 'ما اشتغل التسجيل الخفيف، فاستخدمنا الطريقة العادية',
     navCapture: 'التسجيل', navAudio: 'الصوت', navHotkeys: 'الاختصارات', navGeneral: 'عام', startWithPc: 'يشتغل مع تشغيل الجهاز', modeScreen: 'الشاشة كاملة', modeApps: 'تطبيق محدد', modeGames: 'الألعاب',
     appWindow: 'التطبيق', refresh: 'تحديث القائمة', noWindow: 'اختر تطبيقًا', gamesHint: 'يشتغل Instant Replay لما تفتح لعبة معروفة، ويوقف لما تقفلها.', instantReplay: 'Instant Replay', onlyGaming: 'شغّل Instant Replay أثناء اللعب فقط', extraGames: 'ألعاب إضافية (اسم ملف exe، مفصولة بفاصلة)',
@@ -21,6 +22,7 @@ const I18N = {
   },
   en: {
     updateAvailable: 'A new update is available', updateNow: 'Update', updateDownloading: 'Downloading update', updateInstalling: 'Installing update...', updateFailed: 'Update failed. Try again.',
+    navGroupRecording: 'Recording', navGroupControls: 'Controls', navGroupApp: 'App', whatToCapture: 'What to capture',
     gpuFallback: 'Light capture could not start, so standard capture is being used',
     navCapture: 'Capture', navAudio: 'Audio', navHotkeys: 'Keybinds', navGeneral: 'General', startWithPc: 'Start with my PC', modeScreen: 'Full screen', modeApps: 'Apps', modeGames: 'Games',
     appWindow: 'App', refresh: 'Refresh list', noWindow: 'Choose an app', gamesHint: 'Instant Replay runs when a known game opens and stops when it closes.', instantReplay: 'Instant Replay', onlyGaming: 'Run Instant Replay only while gaming', extraGames: 'Extra games (exe names, comma separated)',

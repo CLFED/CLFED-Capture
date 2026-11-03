@@ -8,16 +8,19 @@
 </head>
 <body>
 <aside>
-  <div class="brand"><img src="logo.png" alt=""><div dir="ltr"><b>CLFED</b><small>CAPTURE</small></div></div>
+  <div class="brand"><img src="logo.png" alt=""><span dir="ltr"><b>CLFED</b><em>Capture</em></span></div>
   <nav>
     <button class="tab active" data-page="home"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l9-7 9 7v9h-6v-6H9v6H3z"/></svg><span data-t="navHome"></span></button>
     <button class="tab" data-page="clips"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M10 9l5 3-5 3z"/></svg><span data-t="navClips"></span><span id="clipCount"></span></button>
+    <span class="navLabel" data-t="navGroupRecording"></span>
     <button class="tab" data-page="capture"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M9 21h6M12 17v4"/></svg><span data-t="navCapture"></span></button>
     <button class="tab" data-page="audio"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4h4l5 4V6L8 10z"/><path d="M17 9a4 4 0 010 6"/></svg><span data-t="navAudio"></span></button>
+    <span class="navLabel" data-t="navGroupControls"></span>
     <button class="tab" data-page="hotkeys"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg><span data-t="navHotkeys"></span></button>
+    <span class="navLabel" data-t="navGroupApp"></span>
     <button class="tab" data-page="general"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></svg><span data-t="navGeneral"></span></button>
   </nav>
-  <label class="check startup"><input id="openAtLogin" type="checkbox"><span data-t="startWithPc"></span></label>
+  <label class="startup"><span data-t="startWithPc"></span><input id="openAtLogin" type="checkbox"></label>
   <div class="lang"><button data-lang="ar">عربي</button><button data-lang="en">English</button></div>
   <div class="status"><i id="dot"></i><span id="statusText"></span></div>
   <div class="signature"><span data-t="madeBy"></span> <b dir="ltr" id="author"></b></div>
@@ -58,55 +61,59 @@
     </div>
   </section>
   <section id="capture" class="page">
-    <header><h1 data-t="navCapture"></h1><p data-t="applyHint"></p></header>
+    <header><h1 data-t="navCapture"></h1></header>
     <div class="modes">
-      <button type="button" data-mode="screen" data-t="modeScreen"></button>
-      <button type="button" data-mode="window" data-t="modeApps"></button>
-      <button type="button" data-mode="games" data-t="modeGames"></button>
+      <button type="button" class="mode" data-mode="screen"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M9 21h6M12 17v4"/></svg><span data-t="modeScreen"></span></button>
+      <button type="button" class="mode" data-mode="window"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M7 6.5h.01"/></svg><span data-t="modeApps"></span></button>
+      <button type="button" class="mode" data-mode="games"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="7" width="20" height="11" rx="5"/><path d="M7 11v3M5.5 12.5h3M15.5 11.5h.01M18 13.5h.01"/></svg><span data-t="modeGames"></span></button>
     </div>
     <form class="settings-form">
-      <label id="monitorRow"><span data-t="monitor"></span><select id="monitor"></select></label>
-      <label id="windowRow" hidden><span data-t="appWindow"></span><span class="folder"><select id="windowName"></select><button type="button" id="refreshWindows" data-t="refresh"></button></span></label>
-      <label><span data-t="resolution"></span><select id="resolution"><option value="720">720p (1280×720)</option><option value="1080">1080p (1920×1080)</option><option value="2k">2K (2048×1080)</option><option value="1440">1440p (2560×1440)</option></select></label>
-      <label><span data-t="fps"></span><select id="fps"><option>30</option><option>60</option></select></label>
-      <label class="check"><input id="autoReplay" type="checkbox"><span data-t="instantReplay"></span></label>
-      <label class="check" id="gamingRow"><input id="onlyGaming" type="checkbox"><span data-t="onlyGaming"></span></label>
-      <p class="note wide" data-t="gamesHint"></p>
-      <label class="wide"><span data-t="extraGames"></span><input id="customGames" dir="ltr" placeholder="MyGame.exe, Other.exe"></label>
-      <button type="submit" class="primary" data-t="save"></button>
+      <div class="group">
+        <h3 data-t="whatToCapture"></h3>
+        <label class="setting" id="monitorRow"><span data-t="monitor"></span><select id="monitor"></select></label>
+        <label class="setting" id="windowRow" hidden><span data-t="appWindow"></span><span class="folder"><select id="windowName"></select><button type="button" id="refreshWindows" data-t="refresh"></button></span></label>
+        <label class="setting"><span data-t="resolution"></span><select id="resolution"><option value="720">720p (1280×720)</option><option value="1080">1080p (1920×1080)</option><option value="2k">2K (2048×1080)</option><option value="1440">1440p (2560×1440)</option></select></label>
+        <label class="setting"><span data-t="fps"></span><select id="fps"><option>30</option><option>60</option></select></label>
+      </div>
+      <div class="group">
+        <h3 data-t="instantReplay"></h3>
+        <label class="setting"><span data-t="instantReplay"></span><input id="autoReplay" type="checkbox"></label>
+        <label class="setting" id="gamingRow"><span data-t="onlyGaming"></span><input id="onlyGaming" type="checkbox"></label>
+        <label class="setting stack"><span data-t="extraGames"></span><input id="customGames" dir="ltr" placeholder="MyGame.exe, Other.exe"></label>
+        <p class="note" data-t="gamesHint"></p>
+      </div>
+      <div class="savebar"><button type="submit" class="primary" data-t="save"></button></div>
     </form>
   </section>
   <section id="audio" class="page">
     <header><h1 data-t="navAudio"></h1></header>
     <div class="modes two">
-      <button type="button" data-audio="separate"><b data-t="separateSources"></b><small data-t="separateHint"></small></button>
-      <button type="button" data-audio="together"><b data-t="togetherSources"></b><small data-t="togetherHint"></small></button>
+      <button type="button" class="mode" data-audio="separate"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg><span><span data-t="separateSources"></span><small data-t="separateHint"></small></span></button>
+      <button type="button" class="mode" data-audio="together"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4h4l5 4V6L8 10z"/><path d="M17 9a4 4 0 010 6"/></svg><span><span data-t="togetherSources"></span><small data-t="togetherHint"></small></span></button>
     </div>
-    <div class="group" id="systemGroup"><div class="groupHead"><b data-t="systemSound"></b><input id="systemOn" type="checkbox"></div>
-      <div class="level"><span data-t="volume"></span><input data-volume="system" type="range" min="0" max="200" step="5"><output></output></div></div>
-    <div class="group" id="discordGroup"><div class="groupHead"><b data-t="discordSound"></b></div>
-      <div class="level"><span data-t="volume"></span><input data-volume="discord" type="range" min="0" max="200" step="5"><output></output></div></div>
-    <div class="group" id="appsGroup"><div class="groupHead"><b data-t="appsSound"></b></div>
-      <div class="level"><span data-t="volume"></span><input data-volume="apps" type="range" min="0" max="200" step="5"><output></output></div></div>
-    <div class="group"><div class="groupHead"><b data-t="microphone"></b><input id="mic" type="checkbox"></div>
-      <div class="level"><span data-t="micDevice"></span><select id="micDevice"></select></div>
-      <div class="level"><span data-t="volume"></span><input data-volume="mic" type="range" min="0" max="200" step="5"><output></output></div></div>
+    <div class="group" id="systemGroup"><div class="groupHead"><span data-t="systemSound"></span><input id="systemOn" type="checkbox"></div><label class="setting"><span data-t="volume"></span><span class="control"><input data-volume="system" type="range" min="0" max="200" step="5"><output></output></span></label></div>
+    <div class="group" id="discordGroup"><div class="groupHead"><span data-t="discordSound"></span></div><label class="setting"><span data-t="volume"></span><span class="control"><input data-volume="discord" type="range" min="0" max="200" step="5"><output></output></span></label></div>
+    <div class="group" id="appsGroup"><div class="groupHead"><span data-t="appsSound"></span></div><label class="setting"><span data-t="volume"></span><span class="control"><input data-volume="apps" type="range" min="0" max="200" step="5"><output></output></span></label></div>
+    <div class="group"><div class="groupHead"><span data-t="microphone"></span><input id="mic" type="checkbox"></div>
+      <label class="setting"><span data-t="micDevice"></span><select id="micDevice"></select></label><label class="setting"><span data-t="volume"></span><span class="control"><input data-volume="mic" type="range" min="0" max="200" step="5"><output></output></span></label></div>
   </section>
   <section id="hotkeys" class="page">
     <header><h1 data-t="navHotkeys"></h1><p data-t="hotkeyHint"></p></header>
     <div class="group">
-      <div class="level"><span data-t="saveReplay"></span><button type="button" class="bind" data-hotkey="saveReplay" dir="ltr"></button></div>
-      <div class="level"><span data-t="startRecord"></span><button type="button" class="bind" data-hotkey="toggleRecord" dir="ltr"></button></div>
-      <div class="level"><span data-t="screenshot"></span><button type="button" class="bind" data-hotkey="screenshot" dir="ltr"></button></div>
+      <div class="setting"><span data-t="saveReplay"></span><button type="button" class="bind" data-hotkey="saveReplay" dir="ltr"></button></div>
+      <div class="setting"><span data-t="startRecord"></span><button type="button" class="bind" data-hotkey="toggleRecord" dir="ltr"></button></div>
+      <div class="setting"><span data-t="screenshot"></span><button type="button" class="bind" data-hotkey="screenshot" dir="ltr"></button></div>
     </div>
     <button type="button" id="resetHotkeys" class="plain" data-t="resetDefaults"></button>
   </section>
   <section id="general" class="page">
-    <header><h1 data-t="navGeneral"></h1><p data-t="applyHint"></p></header>
+    <header><h1 data-t="navGeneral"></h1></header>
     <form class="settings-form">
-      <label class="wide"><span data-t="folder"></span><span class="folder"><input id="clipsFolder" readonly dir="ltr"><button type="button" id="pickFolder" data-t="change"></button></span></label>
-      <label><span data-t="storage"></span><input id="storageLimitGB" type="number" min="0" step="1"></label>
-      <button type="submit" class="primary" data-t="save"></button>
+      <div class="group">
+        <label class="setting stack"><span data-t="folder"></span><span class="folder"><input id="clipsFolder" readonly dir="ltr"><button type="button" id="pickFolder" data-t="change"></button></span></label>
+        <label class="setting"><span data-t="storage"></span><input id="storageLimitGB" type="number" min="0" step="1"></label>
+      </div>
+      <div class="savebar"><button type="submit" class="primary" data-t="save"></button></div>
     </form>
     <p class="about" id="about"></p>
   </section>
