@@ -299,7 +299,7 @@ $('pickFolder').addEventListener('click', async () => {
 function collectSettings() {
   return {
     captureMode, monitorValue: $('monitor').value, windowName: $('windowName').value || windowChoice, fps: Number($('fps').value), resolution: $('resolution').value,
-    showRecordTimer: $('showRecordTimer').checked, autoReplay: $('autoReplay').checked, autoUpdates: $('autoUpdates').checked, folderPerGame: $('folderPerGame').checked, oneDriveCopy: $('oneDriveCopy').checked, playSound: $('playSound').checked, showNotice: $('showNotice').checked, onlyGaming: $('onlyGaming').checked, customGames: $('customGames').value,
+    showRecordTimer: $('showRecordTimer').checked, autoReplay: $('autoReplay').checked, autoUpdates: $('autoUpdates').checked, folderByApp: $('folderByApp').checked, oneDriveCopy: $('oneDriveCopy').checked, playSound: $('playSound').checked, showNotice: $('showNotice').checked, onlyGaming: $('onlyGaming').checked, customGames: $('customGames').value,
     storageLimitGB: Math.max(0, Number($('storageLimitGB').value) || 0), clipsFolder: $('clipsFolder').value,
   };
 }
@@ -356,6 +356,36 @@ async function loadMics(selected) {
 const showAudioOffset = () => { $('audioOffsetValue').textContent = `${$('audioOffset').value} ms`; };
 $('audioOffset').addEventListener('input', showAudioOffset);
 $('audioOffset').addEventListener('change', () => guard(() => api.setAudioOffset(Number($('audioOffset').value))));
+const MIC_TEST_MS = 3000;
+$('testMic').addEventListener('click', async () => {
+  const button = $('testMic');
+  const label = $('micTestText');
+  button.disabled = true;
+  try {
+    const device = $('micDevice').value;
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: device ? { exact: device } : undefined, echoCancellation: false } });
+    const parts = [];
+    const recorder = new MediaRecorder(stream);
+    recorder.ondataavailable = (event) => parts.push(event.data);
+    const finished = new Promise((resolve) => { recorder.onstop = resolve; });
+    label.textContent = t('micTestSpeak');
+    recorder.start();
+    await new Promise((resolve) => setTimeout(resolve, MIC_TEST_MS));
+    recorder.stop();
+    await finished;
+    stream.getTracks().forEach((track) => track.stop());
+    const url = URL.createObjectURL(new Blob(parts, { type: recorder.mimeType }));
+    const sample = new Audio(url);
+    label.textContent = t('micTestPlaying');
+    await sample.play();
+    await new Promise((resolve) => { sample.onended = resolve; });
+    URL.revokeObjectURL(url);
+  } catch (error) {
+    toast(t('micTestFailed'), 'warn');
+  }
+  label.textContent = t('micTestHint');
+  button.disabled = false;
+});
 $('joinDiscord').addEventListener('click', () => guard(() => api.action('joinDiscord')));
 $('openFolder').addEventListener('click', () => guard(() => api.action('openClipsFolder')));
 $('checkUpdates').addEventListener('click', () => guard(() => api.action('checkUpdates')));
@@ -441,7 +471,7 @@ api.on('schedule-done', () => { $('startAt').value = ''; $('clearSchedule').hidd
   });
   $('muteMic').checked = !s.mic;
   $('autoUpdates').checked = s.autoUpdates;
-  $('folderPerGame').checked = s.folderPerGame;
+  $('folderByApp').checked = s.folderByApp;
   $('oneDriveCopy').checked = s.oneDriveCopy;
   $('playSound').checked = s.playSound;
   $('showNotice').checked = s.showNotice;

@@ -10,6 +10,7 @@
 #include <fcntl.h>
 #include <io.h>
 #include <stdio.h>
+#include <wchar.h>
 #include <string>
 #include <vector>
 
@@ -72,7 +73,27 @@ static DWORD findRoot(const std::vector<std::wstring> &names) {
   return 0;
 }
 
+// Prints the program behind the window in front, so a clip can be filed under its name.
+static int printForeground() {
+  DWORD pid = 0;
+  GetWindowThreadProcessId(GetForegroundWindow(), &pid);
+  HANDLE process = pid ? OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid) : nullptr;
+  if (!process) return 3;
+  wchar_t path[MAX_PATH];
+  DWORD length = MAX_PATH;
+  BOOL ok = QueryFullProcessImageNameW(process, 0, path, &length);
+  CloseHandle(process);
+  if (!ok) return 3;
+  const wchar_t *name = wcsrchr(path, L'\\');
+  name = name ? name + 1 : path;
+  char utf8[MAX_PATH * 3];
+  int size = WideCharToMultiByte(CP_UTF8, 0, name, -1, utf8, sizeof(utf8), nullptr, nullptr);
+  if (size > 0) fputs(utf8, stdout);
+  return 0;
+}
+
 int wmain(int argc, wchar_t **argv) {
+  if (argc == 2 && !wcscmp(argv[1], L"foreground")) return printForeground();
   if (argc < 3) return 2;
   bool include = !wcscmp(argv[1], L"include");
   std::vector<std::wstring> names(argv + 2, argv + argc);

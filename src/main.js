@@ -28,7 +28,17 @@ const UPDATE_CHECK_MS = 6 * 60 * 60 * 1000;
 const DISCORD_INVITE = 'https://discord.gg/cNyCYMzVF';
 const OVERLAY_SIZE = { width: 300, height: 76 };
 const TIMER_SIZE = { width: 130, height: 42 };
-const DEFAULT_HOTKEYS = { saveReplay: 'Alt+F8', toggleRecord: 'Alt+F7', screenshot: 'Alt+F6' };
+const DEFAULT_HOTKEYS = {
+  saveReplay: 'Alt+F8', toggleRecord: 'Alt+F7', screenshot: 'Alt+F6',
+  muteMic: 'Ctrl+Alt+M', muteDiscord: 'Ctrl+Alt+D', muteGame: 'Ctrl+Alt+G',
+};
+const FRIENDLY_APPS = {
+  'valorant-win64-shipping.exe': 'Valorant', 'cs2.exe': 'Counter-Strike 2', 'fortniteclient-win64-shipping.exe': 'Fortnite', 'robloxplayerbeta.exe': 'Roblox',
+  'gta5.exe': 'GTA V', 'gta5_enhanced.exe': 'GTA V', 'cod.exe': 'Call of Duty', 'r5apex.exe': 'Apex Legends', 'overwatch.exe': 'Overwatch', 'rocketleague.exe': 'Rocket League',
+  'league of legends.exe': 'League of Legends', 'marvel-win64-shipping.exe': 'Marvel Rivals', 'rainbowsix.exe': 'Rainbow Six Siege', 'escapefromtarkov.exe': 'Escape From Tarkov',
+  'minecraft.windows.exe': 'Minecraft', 'javaw.exe': 'Minecraft', 'eldenring.exe': 'Elden Ring', 'fc26.exe': 'EA FC 26', 'cyberpunk2077.exe': 'Cyberpunk 2077',
+};
+const IGNORED_APPS = new Set(['explorer.exe', 'clfed capture.exe', 'electron.exe', 'searchhost.exe', 'shellexperiencehost.exe']);
 const DISCORD_EXES = ['Discord.exe', 'DiscordPTB.exe', 'DiscordCanary.exe'];
 const KNOWN_GAMES = ['VALORANT-Win64-Shipping.exe', 'cs2.exe', 'FortniteClient-Win64-Shipping.exe', 'RobloxPlayerBeta.exe', 'GTA5.exe', 'GTA5_Enhanced.exe',
   'cod.exe', 'r5apex.exe', 'Overwatch.exe', 'RocketLeague.exe', 'League of Legends.exe', 'Marvel-Win64-Shipping.exe', 'RainbowSix.exe', 'EscapeFromTarkov.exe', 'Minecraft.Windows.exe', 'javaw.exe', 'eldenring.exe', 'FC26.exe', 'Cyberpunk2077.exe'];
@@ -52,6 +62,7 @@ let gpuFailed = false;
 let audioTracks = {};
 let gpuRun = '0';
 let gpuRestarts = 0;
+const liveMutes = { mic: false, discord: false, apps: false };
 let workingCandidate = '';
 let videoStartMs = 0;
 let overlayWin = null;
@@ -108,7 +119,7 @@ function loadSettings() {
     clipsFolder: path.join(app.getPath('videos'), 'CLFED Capture'), replaySeconds: 60, resolution: '1080', fps: 60,
     monitorValue: '', showRecordTimer: true, audioSyncMs: -80, captureMode: 'screen', windowName: '', onlyGaming: false, customGames: '',
     audioMode: 'separate', systemOn: true, systemVolume: 100, micDevice: '', micVolume: 100, discordVolume: 100, appsVolume: 100,
-    hotkeys: { ...DEFAULT_HOTKEYS }, autoUpdates: true, folderPerGame: false, oneDriveCopy: false, playSound: true, showNotice: true, autoReplay: true, mic: true, recordSeconds: 0, lastRecordSeconds: 60, storageLimitGB: 0, openAtLogin: false,
+    hotkeys: { ...DEFAULT_HOTKEYS }, autoUpdates: true, folderByApp: true, oneDriveCopy: false, playSound: true, showNotice: true, autoReplay: true, mic: true, recordSeconds: 0, lastRecordSeconds: 60, storageLimitGB: 0, openAtLogin: false,
     language: app.getLocale().startsWith('ar') ? 'ar' : 'en',
   };
   let saved = {};
@@ -121,6 +132,8 @@ function loadSettings() {
   merged.fps = Math.min(merged.fps, 60);
   delete merged.recordMinutes;
   delete merged.quality;
+  delete merged.folderPerGame;
+  merged.hotkeys = { ...DEFAULT_HOTKEYS, ...merged.hotkeys };
   delete merged.audioOffsetMs;
   if (merged.customSoundFile) fs.rmSync(merged.customSoundFile, { force: true });
   for (const key of ['alertSound', 'customSoundFile', 'customSoundName', 'customSoundVersion']) delete merged[key];
@@ -165,7 +178,7 @@ async function captureConfig() {
   return {
     sourceId: source.id, audioSourceId: screenSource ? screenSource.id : '', width, height, fps: settings.fps, bitrate,
     audioMode: settings.audioMode, systemOn: settings.systemOn, micOn: settings.mic, micDevice: settings.micDevice,
-    systemVolume: settings.systemVolume / 100, micVolume: settings.micVolume / 100, discordVolume: settings.discordVolume / 100, appsVolume: settings.appsVolume / 100,
+    systemVolume: settings.systemVolume / 100, micVolume: trackGain('mic'), discordVolume: trackGain('discord'), appsVolume: trackGain('apps'),
   };
 }
 
@@ -230,12 +243,27 @@ function syncHelpers() {
   if (!fallbackActive && !helpers.apps) startHelper('apps', 'exclude');
   if (hasDiscord() && !helpers.discord) startHelper('discord', 'include');
 }
-function clipsDir() {
-  const game = settings.folderPerGame ? runningGame() : '';
-  if (!game) return settings.clipsFolder;
-  const name = game.replace(/\.exe$/i, '').replace(/-Win64-Shipping$/i, '').replace(/[<>:"/\\|?*]/g, '');
-  const folder = path.join(settings.clipsFolder, name);
-  fs.mkdirSync(folder, { recursive: true });
+function appFolderName(exe) {
+  const lower = exe.toLowerCase();
+  if (FRIENDLY_APPS[lower]) return FRIENDLY_APPS[lower];
+  return exe.replace(/\.exe$/i, '').replace(/-Win64-Shipping$/i, '').replace(/[<>:"/\\|?*]/g, '').trim();
+}
+function foregroundApp() {
+  return new Promise((resolve) => {
+    execFile(helperPath(), ['foreground'], { windowsHide: true, timeout: 1500 }, (error, stdout) => resolve(error ? '' : stdout.trim()));
+  });
+}
+// Runs only when a clip is saved or a recording starts, so it adds nothing during play.
+async function clipsDir() {
+  if (!settings.folderByApp) return settings.clipsFolder;
+  let exe = runningGame();
+  if (!exe) {
+    exe = await foregroundApp();
+    if (IGNORED_APPS.has(exe.toLowerCase())) exe = '';
+  }
+  const name = exe ? appFolderName(exe) : 'Desktop';
+  const folder = path.join(settings.clipsFolder, name || 'Desktop');
+  await fs.promises.mkdir(folder, { recursive: true });
   return folder;
 }
 function backupClip(file) {
@@ -424,6 +452,7 @@ function writeTrack(track, data) {
 }
 function trackGain(name) {
   if (name === 'mix') return 1;
+  if (liveMutes[name]) return 0;
   return settings[`${name}Volume`] / 100;
 }
 function appendAudio(name, chunk) {
@@ -629,7 +658,8 @@ async function saveReplay() {
     const names = gpuSegments().slice(0, -1).slice(-settings.replaySeconds);
     if (!names.length) { notify('waitReplay', 'warn'); return; }
     announce('savedReplay', 'replay');
-    await joinSegments(names, path.join(clipsDir(), `Replay ${stamp()}.mp4`), 0);
+    const folder = await clipsDir();
+    await joinSegments(names, path.join(folder, `Replay ${stamp()}.mp4`), 0);
     return;
   }
   await command('flushReplay');
@@ -639,7 +669,7 @@ async function saveReplay() {
   const files = parts;
   const list = path.join(replayDir(), `list-${Date.now()}.txt`);
   fs.writeFileSync(list, files.map((file) => `file '${file.replace(/\\/g, '/').replace(/'/g, "'\\''")}'`).join('\n'));
-  const target = path.join(clipsDir(), `Replay ${stamp()}.mp4`);
+  const target = path.join(await clipsDir(), `Replay ${stamp()}.mp4`);
   await runFfmpeg(['-f', 'concat', '-safe', '0', '-i', list, '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', target]);
   fs.rmSync(list, { force: true });
   announce('savedReplay', 'replay');
@@ -648,7 +678,8 @@ async function saveReplay() {
 async function startGpuRecord() {
   await startGpuEngine();
   const files = gpuSegments();
-  recording = { started: Date.now(), timer: null, firstSegment: segmentNumber(files[files.length - 1]) + 1 };
+  const folder = await clipsDir();
+  recording = { started: Date.now(), timer: null, folder, firstSegment: segmentNumber(files[files.length - 1]) + 1 };
   const limit = (Number(settings.recordSeconds) || 0) * 1000;
   if (limit > 0) recording.timer = setTimeout(() => stopRecord().catch(fail), limit);
   announce('recordStarted', 'record');
@@ -663,7 +694,7 @@ async function stopGpuRecord() {
   await new Promise((resolve) => setTimeout(resolve, 1300));
   const names = gpuSegments().slice(0, -1).filter((name) => segmentNumber(name) >= current.firstSegment);
   try {
-    if (names.length) await joinSegments(names, path.join(clipsDir(), `Recording ${stamp()}.mp4`), seconds);
+    if (names.length) await joinSegments(names, path.join(current.folder, `Recording ${stamp()}.mp4`), seconds);
   } finally {
     recording = null;
     await stopGpuEngineIfIdle();
@@ -681,7 +712,7 @@ async function startRecord() {
       if (error.message !== GPU_RETRY) throw error;
     }
   }
-  const raw = path.join(clipsDir(), `Recording ${stamp()}.webm`);
+  const raw = path.join(await clipsDir(), `Recording ${stamp()}.webm`);
   recording = { raw, stream: fs.createWriteStream(raw), started: Date.now(), timer: null };
   recording.stream.on('error', (error) => log(error.message));
   await command('startRecord', await captureConfig());
@@ -727,7 +758,16 @@ async function screenshot() {
   const size = { width: Math.round(display.size.width * display.scaleFactor), height: Math.round(display.size.height * display.scaleFactor) };
   const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: size });
   const source = sources.find((item) => item.display_id === String(display.id)) || sources[0];
-  await fs.promises.writeFile(path.join(clipsDir(), `Screenshot ${stamp()}.png`), source.thumbnail.toPNG());
+  await fs.promises.writeFile(path.join(await clipsDir(), `Screenshot ${stamp()}.png`), source.thumbnail.toPNG());
+}
+
+// Mutes what goes into the clip. What you hear yourself does not change.
+async function toggleLiveMute(name, onKey, offKey) {
+  liveMutes[name] = !liveMutes[name];
+  announce(liveMutes[name] ? onKey : offKey, 'saved');
+  if (state.replay || state.record || gpuEngine) {
+    await command('setGain', { name, value: liveMutes[name] ? 0 : settings[`${name}Volume`] / 100 });
+  }
 }
 
 function fail(error) { log(error.stack || error.message); send('toast', { key: I18N.ar[error.message] ? error.message : '', text: error.message, tone: 'warn' }); }
@@ -743,6 +783,9 @@ const actions = {
   toggleRecord: () => (state.record ? stopRecord() : startRecord()),
   screenshot,
   installUpdate,
+  muteMic: () => toggleLiveMute('mic', 'micMuted', 'micUnmuted'),
+  muteDiscord: () => toggleLiveMute('discord', 'discordMuted', 'discordUnmuted'),
+  muteGame: () => toggleLiveMute('apps', 'gameMuted', 'gameUnmuted'),
   joinDiscord: () => shell.openExternal(DISCORD_INVITE),
   openClipsFolder: () => shell.openPath(settings.clipsFolder),
   checkUpdates: () => checkForUpdate(true),
@@ -918,7 +961,7 @@ ipcMain.handle('set-volume', async (_e, name, value) => {
   const volume = Math.min(200, Math.max(0, Number(value) || 0));
   settings[`${name}Volume`] = volume;
   saveSettings();
-  if (state.replay || state.record || gpuEngine) await command('setGain', { name, value: volume / 100 });
+  if ((state.replay || state.record || gpuEngine) && !liveMutes[name]) await command('setGain', { name, value: volume / 100 });
 });
 ipcMain.handle('set-hotkey', (_e, name, accelerator) => {
   if (!DEFAULT_HOTKEYS[name]) return settings.hotkeys;

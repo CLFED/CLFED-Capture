@@ -2,7 +2,7 @@
 <html lang="en" dir="ltr">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' file:; media-src file:; style-src 'self' 'unsafe-inline'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' file:; media-src file: blob:; style-src 'self' 'unsafe-inline'">
 <title>CLFED Capture</title>
 <link rel="stylesheet" href="style.css">
 </head>
@@ -85,6 +85,7 @@
       <div class="level"><span data-t="microphone"></span><input data-volume="mic" type="range" min="0" max="200" step="5"><output></output></div>
       <label class="setting"><span data-t="muteMic"></span><input id="muteMic" type="checkbox"></label>
       <label class="setting"><span data-t="micDeviceName"></span><select id="micDevice"></select></label>
+      <div class="setting"><span id="micTestText" data-t="micTestHint"></span><button type="button" class="plain" id="testMic" data-t="testMic"></button></div>
       <div class="level"><span data-t="audioSync"></span><input id="audioOffset" type="range" min="-800" max="800" step="10" dir="ltr"><output id="audioOffsetValue" dir="ltr"></output></div>
       <p class="note" data-t="audioSyncHint"></p>
     </div>
@@ -95,6 +96,9 @@
       <div class="setting"><span data-t="saveReplay"></span><button type="button" class="bind" data-hotkey="saveReplay" dir="ltr"></button></div>
       <div class="setting"><span data-t="recordHotkey"></span><button type="button" class="bind" data-hotkey="toggleRecord" dir="ltr"></button></div>
       <div class="setting"><span data-t="screenshot"></span><button type="button" class="bind" data-hotkey="screenshot" dir="ltr"></button></div>
+      <div class="setting"><span data-t="muteMicKey"></span><button type="button" class="bind" data-hotkey="muteMic" dir="ltr"></button></div>
+      <div class="setting"><span data-t="muteDiscordKey"></span><button type="button" class="bind" data-hotkey="muteDiscord" dir="ltr"></button></div>
+      <div class="setting"><span data-t="muteGameKey"></span><button type="button" class="bind" data-hotkey="muteGame" dir="ltr"></button></div>
     </div>
     <button type="button" id="resetHotkeys" class="plain" data-t="resetDefaults"></button>
   </section>
@@ -111,7 +115,7 @@
       <div class="group">
         <h3 data-t="savedGroup"></h3>
         <label class="setting stack"><span data-t="folder"></span><span class="field"><input id="clipsFolder" readonly dir="ltr"><button type="button" class="plain" id="pickFolder" data-t="change"></button><button type="button" class="plain" id="openFolder" data-t="openFolder"></button></span></label>
-        <label class="setting"><span data-t="folderPerGame"></span><input id="folderPerGame" type="checkbox"></label>
+        <label class="setting"><span data-t="folderByApp"></span><input id="folderByApp" type="checkbox"></label>
         <label class="setting"><span data-t="oneDriveCopy"></span><input id="oneDriveCopy" type="checkbox"></label>
         <label class="setting"><span data-t="storage"></span><select id="storageLimitGB"><option value="0" data-t="noLimitOption"></option><option value="25">25 GB</option><option value="50">50 GB</option><option value="100">100 GB</option><option value="250">250 GB</option></select></label>
       </div>
