@@ -15,6 +15,7 @@ const SEGMENT_SECONDS = 5;
 const PCM_BATCH_BYTES = 7680;
 const GPU_START_MS = 8000;
 const GPU_RETRY = 'gpu-retry';
+const GPU_RESTART_LIMIT = 3;
 const PCM_BYTES_PER_SECOND = 192000;
 const AUDIO_BUCKET_BYTES = PCM_BYTES_PER_SECOND * 10;
 const AUDIO_RESYNC_BYTES = 9600;
@@ -48,6 +49,8 @@ let updateInfo = null;
 let gpuEngine = null;
 let gpuFailed = false;
 let audioTracks = {};
+let gpuRun = '0';
+let gpuRestarts = 0;
 let workingCandidate = '';
 let videoStartMs = 0;
 let overlayWin = null;
@@ -315,7 +318,32 @@ async function pollProcesses() {
 }
 
 const useGpu = () => settings.captureMode !== 'window' && !gpuFailed && (!testMode || Boolean(process.env.CLFED_TEST_VIDEO_ARGS));
-const gpuDir = () => path.join(home(), 'gpu');
+const gpuRoot = () => path.join(home(), 'gpu');
+const gpuDir = () => path.join(gpuRoot(), gpuRun);
+
+// Each run gets its own folder, so a file Windows still holds cannot stop the next run.
+function newGpuRun() {
+  gpuRun = String(Date.now());
+  fs.mkdirSync(gpuDir(), { recursive: true });
+  cleanGpuRuns();
+}
+function cleanGpuRuns() {
+  let names = [];
+  try { names = fs.readdirSync(gpuRoot()); } catch { return; }
+  for (const name of names) {
+    if (name === gpuRun) continue;
+    fs.promises.rm(path.join(gpuRoot(), name), { recursive: true, force: true, maxRetries: 3, retryDelay: 300 }).catch(() => {});
+  }
+}
+// An earlier crash can leave the capture process running, which keeps its files locked.
+function stopLeftoverCapture() {
+  if (testMode || process.platform !== 'win32') return Promise.resolve();
+  const target = ffmpegPath().replace(/'/g, "''");
+  return new Promise((resolve) => {
+    execFile('powershell', ['-NoProfile', '-Command', `Get-Process ffmpeg -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq '${target}' } | Stop-Process -Force`],
+      { windowsHide: true, timeout: 8000 }, () => resolve());
+  });
+}
 
 function chosenDisplay() {
   const primary = screen.getPrimaryDisplay();
@@ -443,6 +471,18 @@ function trimGpuSegments() {
   }
 }
 
+function handleGpuCrash() {
+  closeAudioTracks();
+  command('stopAudio').catch(fail);
+  syncHelpers();
+  if (!state.replay) return;
+  setState({ replay: false });
+  notify('captureRestarting', 'warn');
+  if (gpuRestarts >= GPU_RESTART_LIMIT) return;
+  gpuRestarts += 1;
+  setTimeout(() => startReplay().catch(fail), 2000);
+}
+
 async function tryGpuCandidate(candidate) {
   const child = spawn(ffmpegPath(), gpuArgs(candidate), { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
   gpuEngine = child;
@@ -454,6 +494,7 @@ async function tryGpuCandidate(candidate) {
     if (gpuEngine !== child) return;
     gpuEngine = null;
     log(`GPU capture stopped (${code}): ${errors}`);
+    handleGpuCrash();
   });
   try { os.setPriority(child.pid, os.constants.priority.PRIORITY_HIGH); } catch (error) { log(error.message); }
   const deadline = Date.now() + GPU_START_MS;
@@ -472,14 +513,11 @@ async function tryGpuCandidate(candidate) {
 
 async function startGpuEngine() {
   if (gpuEngine) return;
-  fs.rmSync(gpuDir(), { recursive: true, force: true });
-  fs.mkdirSync(gpuDir(), { recursive: true });
   closeAudioTracks();
   await command('startAudio', await captureConfig());
   const candidates = workingCandidate ? [workingCandidate] : gpuCandidates();
   for (const candidate of candidates) {
-    fs.rmSync(gpuDir(), { recursive: true, force: true });
-    fs.mkdirSync(gpuDir(), { recursive: true });
+    newGpuRun();
     if (await tryGpuCandidate(candidate)) {
       workingCandidate = candidate;
       syncHelpers();
@@ -487,7 +525,6 @@ async function startGpuEngine() {
     }
   }
   gpuFailed = true;
-  fs.rmSync(gpuDir(), { recursive: true, force: true });
   await command('stopAudio').catch(fail);
   syncHelpers();
   notify('gpuFallback', 'warn');
@@ -498,11 +535,14 @@ async function stopGpuEngineIfIdle() {
   if (!gpuEngine || state.replay || recording) return;
   const child = gpuEngine;
   gpuEngine = null;
+  const exited = new Promise((resolve) => child.once('close', resolve));
   child.kill();
+  await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 2000))]);
   await command('stopAudio').catch(fail);
   syncHelpers();
   closeAudioTracks();
-  fs.rmSync(gpuDir(), { recursive: true, force: true });
+  gpuRun = '0';
+  setTimeout(cleanGpuRuns, 1000);
 }
 
 async function joinSegments(names, target, seconds) {
@@ -927,6 +967,8 @@ if (!app.requestSingleInstanceLock()) {
     await createWindows();
     createTray();
     registerHotkeys();
+    await stopLeftoverCapture();
+    cleanGpuRuns();
     let lastList = '';
     setInterval(() => {
       tick();

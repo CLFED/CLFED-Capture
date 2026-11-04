@@ -3,6 +3,7 @@ const I18N = {
   ar: {
     updateAvailable: 'يوجد تحديث جديد', updateNow: 'تحديث', updateDownloading: 'جاري تنزيل التحديث', updateInstalling: 'جاري تثبيت التحديث...', updateFailed: 'فشل التحديث، جرّب مرة ثانية',
     audioSync: 'مزامنة الصوت', audioSyncHint: 'إذا كان الصوت متأخرًا عن الفيديو، ارفع القيمة. وإذا كان سابقًا له، اخفضها. تتطبق على المقاطع الجديدة.',
+    captureRestarting: 'توقف الالتقاط، وجاري تشغيله مرة ثانية',
     whatToCapture: 'ماذا تسجل', showRecordTimer: 'أظهر مدة التسجيل فوق اللعبة',
     gpuFallback: 'ما اشتغل التسجيل الخفيف، فاستخدمنا الطريقة العادية',
     navCapture: 'التسجيل', navAudio: 'الصوت', navHotkeys: 'الاختصارات', navGeneral: 'عام', startWithPc: 'يشتغل مع تشغيل الجهاز', modeScreen: 'الشاشة كاملة', modeApps: 'تطبيق محدد', modeGames: 'الألعاب',
@@ -24,6 +25,7 @@ const I18N = {
   en: {
     updateAvailable: 'A new update is available', updateNow: 'Update', updateDownloading: 'Downloading update', updateInstalling: 'Installing update...', updateFailed: 'Update failed. Try again.',
     audioSync: 'Audio sync', audioSyncHint: 'If sound comes after the picture, raise this. If it comes before, lower it. It applies to new clips.',
+    captureRestarting: 'Capture stopped. Restarting it now.',
     whatToCapture: 'What to capture', showRecordTimer: 'Show recording time over the game',
     gpuFallback: 'Light capture could not start, so standard capture is being used',
     navCapture: 'Capture', navAudio: 'Audio', navHotkeys: 'Keybinds', navGeneral: 'General', startWithPc: 'Start with my PC', modeScreen: 'Full screen', modeApps: 'Apps', modeGames: 'Games',
