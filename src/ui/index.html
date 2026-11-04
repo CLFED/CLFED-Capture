@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ar" dir="rtl">
+<html lang="en" dir="ltr">
 <head>
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' file:; media-src file:; style-src 'self' 'unsafe-inline'">
@@ -7,117 +7,121 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<header class="bar">
+<aside class="rail">
   <div class="brand"><img src="logo.png" alt=""><span dir="ltr">CLFED Capture</span></div>
-  <nav>
-    <button class="tab active" data-page="home"><span data-t="navHome"></span></button>
-    <button class="tab" data-page="clips"><span data-t="navClips"></span><span id="clipCount"></span></button>
-    <button class="tab" data-page="capture"><span data-t="navCapture"></span></button>
-    <button class="tab" data-page="audio"><span data-t="navAudio"></span></button>
-    <button class="tab" data-page="hotkeys"><span data-t="navHotkeys"></span></button>
-    <button class="tab" data-page="general"><span data-t="navGeneral"></span></button>
+  <nav aria-label="Main">
+    <button class="tab active" data-page="home"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l9-7 9 7v9h-6v-6H9v6H3z"/></svg><span data-t="navHome"></span></button>
+    <button class="tab" data-page="clips"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h18v12H3zM10 10l5 3-5 3z"/></svg><span data-t="navClips"></span><span id="clipCount"></span></button>
+    <button class="tab" data-page="capture"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18v12H3zM9 21h6M12 17v4"/></svg><span data-t="navCapture"></span></button>
+    <button class="tab" data-page="audio"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4h4l5 4V6L8 10zM17 9a4 4 0 010 6"/></svg><span data-t="navAudio"></span></button>
+    <button class="tab" data-page="hotkeys"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 7h20v11H2zM6 11h.01M10 11h.01M14 11h.01M18 11h.01M7 15h10"/></svg><span data-t="navHotkeys"></span></button>
+    <button class="tab" data-page="general"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10M14 5v4M6 15v4"/></svg><span data-t="navSettings"></span></button>
   </nav>
-  <div class="signature"><span data-t="madeBy"></span> <b dir="ltr" id="author"></b></div>
-  <div class="lang"><button data-lang="ar">عربي</button><button data-lang="en">English</button></div>
-</header>
+  <button id="joinDiscord" class="join"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4zM9 10h.01M15 10h.01"/></svg><span data-t="joinDiscord"></span></button>
+  <p class="signature"><span data-t="madeBy"></span> <span dir="ltr" id="author"></span></p>
+</aside>
 <main>
   <div id="updateBar" hidden><span id="updateText"></span><button type="button" id="installUpdate" data-t="updateNow"></button></div>
   <section id="home" class="page active">
-    <div class="finder"><span class="lamp"><i id="dot"></i></span><span id="statusText"></span><small data-t="homeHint"></small></div>
-    <div class="deck">
-      <button id="saveReplay" class="key hero"><span data-t="saveReplay"></span><kbd dir="ltr" id="kbdSave"></kbd></button>
-      <button id="toggleRecord" class="key"><span id="recordLabel"></span><kbd dir="ltr" id="kbdRecord"></kbd></button>
-      <button id="screenshot" class="key"><span data-t="screenshot"></span><kbd dir="ltr" id="kbdShot"></kbd></button>
-      <button id="toggleReplay" class="key" role="switch"><span class="cardHead"><span data-t="instantReplay"></span><span class="pill"><b id="replayState"></b><i></i></span></span><small id="replayLength"></small></button>
-    </div>
-    <div class="timing">
-      <div>
-        <div class="meterHead"><span data-t="recordTime"></span><output id="recordValue"></output></div>
-        <div class="slider"><button id="recordDown" type="button" data-title="decrease">−</button><input id="recordSlider" type="range" min="0" step="1"><button id="recordUp" type="button" data-title="increase">+</button></div>
-        <label class="check"><input id="recordUnlimited" type="checkbox"><span data-t="noLimit"></span></label>
-      </div>
+    <header class="homeHead">
+      <div><h1 id="statusText"></h1><p id="replayLength"></p></div>
+      <button id="toggleReplay" class="replaySwitch" role="switch"><i id="dot"></i><span id="replayState"></span></button>
+    </header>
+    <section class="actions">
+      <button id="saveReplay" class="action main"><strong data-t="saveReplay"></strong><kbd dir="ltr" id="kbdSave"></kbd></button>
+      <button id="toggleRecord" class="action"><strong id="recordLabel"></strong><kbd dir="ltr" id="kbdRecord"></kbd></button>
+      <button id="screenshot" class="action"><strong data-t="screenshot"></strong><kbd dir="ltr" id="kbdShot"></kbd></button>
+    </section>
+    <h2 data-t="recent"></h2>
+    <div id="recent" class="recent"></div>
+    <section class="timing">
       <div>
         <div class="meterHead"><span data-t="replayTime"></span><output id="replayValue"></output></div>
         <div class="slider"><button id="replayDown" type="button" data-title="decrease">−</button><input id="replaySlider" type="range" min="0" step="1"><button id="replayUp" type="button" data-title="increase">+</button></div>
       </div>
+      <div>
+        <div class="meterHead"><span data-t="recordTime"></span><output id="recordValue"></output></div>
+        <div class="slider"><button id="recordDown" type="button" data-title="decrease">−</button><input id="recordSlider" type="range" min="0" step="1"><button id="recordUp" type="button" data-title="increase">+</button></div>
+        <label class="inline"><span data-t="noLimit"></span><input id="recordUnlimited" type="checkbox"></label>
+      </div>
       <div class="schedule">
         <label><span data-t="startAt"></span><input id="startAt" type="time" dir="ltr"></label>
-        <button id="clearSchedule" type="button" hidden data-t="cancelSchedule"></button>
+        <button id="clearSchedule" type="button" class="plain" hidden data-t="cancelSchedule"></button>
       </div>
-    </div>
-    <h2 data-t="recent"></h2>
-    <div id="recent" class="recent"></div>
+    </section>
   </section>
   <section id="clips" class="page">
-    <h1 data-t="navClips"></h1><p id="clipSummary"></p>
-    <div class="library">
-      <div id="clipList" class="list"></div>
-      <div id="viewer" class="viewer"></div>
-    </div>
+    <h1 data-t="navClips"></h1><p class="lead" id="clipSummary"></p>
+    <div class="library"><div id="clipList" class="list"></div><div id="viewer" class="viewer"></div></div>
   </section>
-  <section id="capture" class="page">
+  <section id="capture" class="page narrow">
     <h1 data-t="navCapture"></h1>
-    <div class="modes">
-      <button type="button" class="mode" data-mode="screen"><span data-t="modeScreen"></span></button>
-      <button type="button" class="mode" data-mode="window"><span data-t="modeApps"></span></button>
-      <button type="button" class="mode" data-mode="games"><span data-t="modeGames"></span></button>
-    </div>
+    <div class="modes"><button type="button" class="mode" data-mode="screen" data-t="modeScreen"></button><button type="button" class="mode" data-mode="window" data-t="modeApps"></button><button type="button" class="mode" data-mode="games" data-t="modeGames"></button></div>
     <form class="settings-form">
       <div class="group">
-        <h3 data-t="whatToCapture"></h3>
+        <h3 data-t="videoGroup"></h3>
         <label class="setting" id="monitorRow"><span data-t="monitor"></span><select id="monitor"></select></label>
-        <label class="setting" id="windowRow" hidden><span data-t="appWindow"></span><span class="folder"><select id="windowName"></select><button type="button" id="refreshWindows" data-t="refresh"></button></span></label>
+        <label class="setting" id="windowRow" hidden><span data-t="appWindow"></span><span class="field"><select id="windowName"></select><button type="button" class="plain" id="refreshWindows" data-t="refresh"></button></span></label>
         <label class="setting"><span data-t="resolution"></span><select id="resolution"><option value="720">720p (1280×720)</option><option value="1080">1080p (1920×1080)</option><option value="2k">2K (2048×1080)</option><option value="1440">1440p (2560×1440)</option></select></label>
         <label class="setting"><span data-t="fps"></span><select id="fps"><option>30</option><option>60</option></select></label>
-        <label class="setting"><span data-t="showRecordTimer"></span><input id="showRecordTimer" type="checkbox"></label>
       </div>
       <div class="group">
-        <h3 data-t="instantReplay"></h3>
-        <label class="setting"><span data-t="instantReplay"></span><input id="autoReplay" type="checkbox"></label>
+        <h3 data-t="replayGroup"></h3>
+        <label class="setting"><span data-t="keepReplay"></span><input id="autoReplay" type="checkbox"></label>
         <label class="setting" id="gamingRow"><span data-t="onlyGaming"></span><input id="onlyGaming" type="checkbox"></label>
+        <label class="setting"><span data-t="showRecordTimer"></span><input id="showRecordTimer" type="checkbox"></label>
         <label class="setting stack"><span data-t="extraGames"></span><input id="customGames" dir="ltr" placeholder="MyGame.exe, Other.exe"></label>
-        <p class="note" data-t="gamesHint"></p>
       </div>
-      <div class="savebar"><button type="submit" class="primary" data-t="save"></button></div>
+      <button type="submit" class="primary" data-t="save"></button>
     </form>
   </section>
-  <section id="audio" class="page">
+  <section id="audio" class="page narrow">
     <h1 data-t="navAudio"></h1>
-    <div class="modes">
-      <button type="button" class="mode" data-audio="separate"><span data-t="separateSources"></span><small data-t="separateHint"></small></button>
-      <button type="button" class="mode" data-audio="together"><span data-t="togetherSources"></span><small data-t="togetherHint"></small></button>
-    </div>
-    <div class="mixer">
-      <div class="strip" id="systemGroup"><div class="stripHead"><b data-t="systemSound"></b><input id="systemOn" type="checkbox"></div><input data-volume="system" type="range" min="0" max="200" step="5" dir="ltr"><output></output></div>
-      <div class="strip" id="discordGroup"><div class="stripHead"><b data-t="discordSound"></b></div><input data-volume="discord" type="range" min="0" max="200" step="5" dir="ltr"><output></output></div>
-      <div class="strip" id="appsGroup"><div class="stripHead"><b data-t="appsSound"></b></div><input data-volume="apps" type="range" min="0" max="200" step="5" dir="ltr"><output></output></div>
-      <div class="strip" id="micGroup"><div class="stripHead"><b data-t="microphone"></b><input id="mic" type="checkbox"></div><input data-volume="mic" type="range" min="0" max="200" step="5" dir="ltr"><output></output><select id="micDevice" aria-label="Microphone"></select></div>
-    </div>
-    <div class="group plainGroup">
-      <label class="setting"><span data-t="audioSync"></span><span class="sync"><input id="audioOffset" type="range" min="-800" max="800" step="10" dir="ltr"><output id="audioOffsetValue" dir="ltr"></output></span></label>
+    <div class="modes"><button type="button" class="mode" data-audio="separate" data-t="separateSources"></button><button type="button" class="mode" data-audio="together" data-t="togetherSources"></button></div>
+    <div class="group plain">
+      <div class="level" id="systemGroup"><span class="levelName"><span data-t="systemSound"></span><input id="systemOn" type="checkbox"></span><input data-volume="system" type="range" min="0" max="200" step="5"><output></output></div>
+      <div class="level" id="discordGroup"><span data-t="discordSound"></span><input data-volume="discord" type="range" min="0" max="200" step="5"><output></output></div>
+      <div class="level" id="appsGroup"><span data-t="appsSound"></span><input data-volume="apps" type="range" min="0" max="200" step="5"><output></output></div>
+      <div class="level"><span data-t="microphone"></span><input data-volume="mic" type="range" min="0" max="200" step="5"><output></output></div>
+      <label class="setting"><span data-t="muteMic"></span><input id="muteMic" type="checkbox"></label>
+      <label class="setting"><span data-t="micDeviceName"></span><select id="micDevice"></select></label>
+      <div class="level"><span data-t="audioSync"></span><input id="audioOffset" type="range" min="-800" max="800" step="10" dir="ltr"><output id="audioOffsetValue" dir="ltr"></output></div>
       <p class="note" data-t="audioSyncHint"></p>
     </div>
   </section>
-  <section id="hotkeys" class="page">
-    <h1 data-t="navHotkeys"></h1><p data-t="hotkeyHint"></p>
-    <div class="group plainGroup">
+  <section id="hotkeys" class="page narrow">
+    <h1 data-t="navHotkeys"></h1><p class="lead" data-t="hotkeyHint"></p>
+    <div class="group plain">
       <div class="setting"><span data-t="saveReplay"></span><button type="button" class="bind" data-hotkey="saveReplay" dir="ltr"></button></div>
-      <div class="setting"><span data-t="startRecord"></span><button type="button" class="bind" data-hotkey="toggleRecord" dir="ltr"></button></div>
+      <div class="setting"><span data-t="recordHotkey"></span><button type="button" class="bind" data-hotkey="toggleRecord" dir="ltr"></button></div>
       <div class="setting"><span data-t="screenshot"></span><button type="button" class="bind" data-hotkey="screenshot" dir="ltr"></button></div>
     </div>
     <button type="button" id="resetHotkeys" class="plain" data-t="resetDefaults"></button>
   </section>
-  <section id="general" class="page">
-    <h1 data-t="navGeneral"></h1>
+  <section id="general" class="page narrow">
+    <h1 data-t="navSettings"></h1>
     <form class="settings-form">
-      <div class="group plainGroup">
-        <label class="setting"><span data-t="startWithPc"></span><input id="openAtLogin" type="checkbox"></label>
-        <label class="setting stack"><span data-t="folder"></span><span class="folder"><input id="clipsFolder" readonly dir="ltr"><button type="button" id="pickFolder" data-t="change"></button></span></label>
-        <label class="setting"><span data-t="storage"></span><input id="storageLimitGB" type="number" min="0" step="1"></label>
+      <div class="group">
+        <h3 data-t="appGroup"></h3>
+        <label class="setting"><span data-t="openAtLogin"></span><input id="openAtLogin" type="checkbox"></label>
+        <label class="setting"><span data-t="autoUpdates"></span><input id="autoUpdates" type="checkbox"></label>
+        <div class="setting"><span id="about"></span><button type="button" class="plain" id="checkUpdates" data-t="checkUpdates"></button></div>
+        <label class="setting"><span data-t="language"></span><select id="language"><option value="en">English</option><option value="ar">العربية</option></select></label>
       </div>
-      <div class="savebar"><button type="submit" class="primary" data-t="save"></button></div>
+      <div class="group">
+        <h3 data-t="savedGroup"></h3>
+        <label class="setting stack"><span data-t="folder"></span><span class="field"><input id="clipsFolder" readonly dir="ltr"><button type="button" class="plain" id="pickFolder" data-t="change"></button><button type="button" class="plain" id="openFolder" data-t="openFolder"></button></span></label>
+        <label class="setting"><span data-t="folderPerGame"></span><input id="folderPerGame" type="checkbox"></label>
+        <label class="setting"><span data-t="oneDriveCopy"></span><input id="oneDriveCopy" type="checkbox"></label>
+        <label class="setting"><span data-t="storage"></span><select id="storageLimitGB"><option value="0" data-t="noLimitOption"></option><option value="25">25 GB</option><option value="50">50 GB</option><option value="100">100 GB</option><option value="250">250 GB</option></select></label>
+      </div>
+      <div class="group">
+        <h3 data-t="alertsGroup"></h3>
+        <label class="setting"><span data-t="playSound"></span><input id="playSound" type="checkbox"></label>
+        <label class="setting"><span data-t="showNotice"></span><input id="showNotice" type="checkbox"></label>
+      </div>
+      <button type="submit" class="primary" data-t="save"></button>
     </form>
-    <p class="about" id="about"></p>
   </section>
 </main>
 <div id="toast" hidden></div>

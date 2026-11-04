@@ -85,7 +85,7 @@ function renderRecordValue() {
 function renderReplayValue() {
   const value = duration(REPLAY_STOPS[Number($('replaySlider').value)]);
   $('replayValue').textContent = value;
-  $('replayLength').textContent = `${t('last')} ${value}`;
+  $('replayLength').textContent = `${t('keeping')} ${value}`;
 }
 function saveTiming() {
   return guard(() => api.saveTiming({
@@ -133,7 +133,7 @@ function renderState(next) {
   if (state.record) label = left ? `${t('stopRecord')}، ${t('remaining')} ${duration(left)}` : `${t('stopRecord')} ${ltr(state.timecode || '')}`;
   $('recordLabel').textContent = lang === 'en' ? label.replace('،', ',') : label;
   $('toggleRecord').classList.toggle('active', Boolean(state.record));
-  $('replayState').textContent = state.replay ? 'ON' : 'OFF';
+  $('replayState').textContent = state.replay ? t('replayOn') : t('replayOff');
   $('toggleReplay').setAttribute('aria-checked', String(Boolean(state.replay)));
   if (state.autoReplay !== undefined) $('autoReplay').checked = state.autoReplay;
   $('toggleReplay').classList.toggle('active', Boolean(state.replay));
@@ -275,8 +275,8 @@ function applyLanguage() {
   document.querySelectorAll('[data-t]').forEach((node) => { node.textContent = t(node.dataset.t); });
   renderHotkeys();
   document.querySelectorAll('[data-title]').forEach((node) => { node.title = t(node.dataset.title); node.setAttribute('aria-label', t(node.dataset.title)); });
-  document.querySelectorAll('[data-lang]').forEach((node) => node.classList.toggle('active', node.dataset.lang === lang));
-  if (aboutData) $('about').textContent = `CLFED Capture ${aboutData.version}\n${t('madeBy')} ${aboutData.author}`;
+  $('language').value = lang;
+  if (aboutData) $('about').textContent = `CLFED Capture ${aboutData.version}`;
   renderRecordValue();
   renderReplayValue();
   renderState(state);
@@ -286,11 +286,11 @@ function applyLanguage() {
   renderViewer();
   if (!clips.length) $('recent').replaceChildren(emptyNote('firstClip'));
 }
-document.querySelectorAll('[data-lang]').forEach((button) => button.addEventListener('click', () => {
-  lang = button.dataset.lang;
+$('language').addEventListener('change', () => {
+  lang = $('language').value;
   applyLanguage();
   guard(() => api.setLanguage(lang));
-}));
+});
 
 $('pickFolder').addEventListener('click', async () => {
   const folder = await guard(() => api.pickFolder());
@@ -299,7 +299,7 @@ $('pickFolder').addEventListener('click', async () => {
 function collectSettings() {
   return {
     captureMode, monitorValue: $('monitor').value, windowName: $('windowName').value || windowChoice, fps: Number($('fps').value), resolution: $('resolution').value,
-    showRecordTimer: $('showRecordTimer').checked, autoReplay: $('autoReplay').checked, onlyGaming: $('onlyGaming').checked, customGames: $('customGames').value,
+    showRecordTimer: $('showRecordTimer').checked, autoReplay: $('autoReplay').checked, autoUpdates: $('autoUpdates').checked, folderPerGame: $('folderPerGame').checked, oneDriveCopy: $('oneDriveCopy').checked, playSound: $('playSound').checked, showNotice: $('showNotice').checked, onlyGaming: $('onlyGaming').checked, customGames: $('customGames').value,
     storageLimitGB: Math.max(0, Number($('storageLimitGB').value) || 0), clipsFolder: $('clipsFolder').value,
   };
 }
@@ -337,13 +337,13 @@ function renderAudioMode() {
   $('discordGroup').hidden = audioMode !== 'separate';
   $('appsGroup').hidden = audioMode !== 'separate';
 }
-const applyAudio = async () => { if (await guard(() => api.apply({ audioMode, systemOn: $('systemOn').checked, mic: $('mic').checked, micDevice: $('micDevice').value }))) toast(t('saved'), 'good'); };
+const applyAudio = async () => { if (await guard(() => api.apply({ audioMode, systemOn: $('systemOn').checked, mic: !$('muteMic').checked, micDevice: $('micDevice').value }))) toast(t('saved'), 'good'); };
 document.querySelectorAll('[data-audio]').forEach((button) => button.addEventListener('click', () => {
   audioMode = button.dataset.audio;
   renderAudioMode();
   applyAudio();
 }));
-for (const id of ['systemOn', 'mic', 'micDevice']) $(id).addEventListener('change', applyAudio);
+for (const id of ['systemOn', 'muteMic', 'micDevice']) $(id).addEventListener('change', applyAudio);
 document.querySelectorAll('[data-volume]').forEach((slider) => {
   const out = slider.nextElementSibling;
   slider.addEventListener('input', () => { out.textContent = `${slider.value}%`; guard(() => api.setVolume(slider.dataset.volume, Number(slider.value))); });
@@ -356,6 +356,9 @@ async function loadMics(selected) {
 const showAudioOffset = () => { $('audioOffsetValue').textContent = `${$('audioOffset').value} ms`; };
 $('audioOffset').addEventListener('input', showAudioOffset);
 $('audioOffset').addEventListener('change', () => guard(() => api.setAudioOffset(Number($('audioOffset').value))));
+$('joinDiscord').addEventListener('click', () => guard(() => api.action('joinDiscord')));
+$('openFolder').addEventListener('click', () => guard(() => api.action('openClipsFolder')));
+$('checkUpdates').addEventListener('click', () => guard(() => api.action('checkUpdates')));
 $('openAtLogin').addEventListener('change', async () => {
   const value = await guard(() => api.setStartup($('openAtLogin').checked));
   if (value === undefined) $('openAtLogin').checked = !$('openAtLogin').checked;
@@ -419,7 +422,7 @@ api.on('schedule-done', () => { $('startAt').value = ''; $('clearSchedule').hidd
   $('replaySlider').value = nearest(REPLAY_STOPS, s.replaySeconds);
   $('fps').value = String(s.fps);
   $('resolution').value = String(s.resolution);
-  $('storageLimitGB').value = s.storageLimitGB;
+  $('storageLimitGB').value = String(s.storageLimitGB);
   $('clipsFolder').value = s.clipsFolder;
   $('autoReplay').checked = s.autoReplay;
   $('onlyGaming').checked = s.onlyGaming;
@@ -436,7 +439,13 @@ api.on('schedule-done', () => { $('startAt').value = ''; $('clearSchedule').hidd
     slider.value = s[`${slider.dataset.volume}Volume`];
     slider.nextElementSibling.textContent = `${slider.value}%`;
   });
-  $('mic').checked = s.mic;
+  $('muteMic').checked = !s.mic;
+  $('autoUpdates').checked = s.autoUpdates;
+  $('folderPerGame').checked = s.folderPerGame;
+  $('oneDriveCopy').checked = s.oneDriveCopy;
+  $('playSound').checked = s.playSound;
+  $('showNotice').checked = s.showNotice;
+  if (![...$('storageLimitGB').options].some((option) => option.value === String(s.storageLimitGB))) $('storageLimitGB').add(new Option(`${s.storageLimitGB} GB`, String(s.storageLimitGB)));
   $('openAtLogin').checked = s.openAtLogin;
   if (data.state.startAt) { $('startAt').value = data.state.startAt; $('clearSchedule').hidden = false; }
   state = data.state;

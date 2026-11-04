@@ -25,6 +25,7 @@ const UPDATE_URL = (testMode && process.env.CLFED_UPDATE_URL) || 'https://github
 const GPU_BITS_PER_PIXEL = 0.18;
 const GPU_MAX_BITRATE = 90000000;
 const UPDATE_CHECK_MS = 6 * 60 * 60 * 1000;
+const DISCORD_INVITE = 'https://discord.gg/cNyCYMzVF';
 const OVERLAY_SIZE = { width: 300, height: 76 };
 const TIMER_SIZE = { width: 130, height: 42 };
 const DEFAULT_HOTKEYS = { saveReplay: 'Alt+F8', toggleRecord: 'Alt+F7', screenshot: 'Alt+F6' };
@@ -77,11 +78,12 @@ function stamp() {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`;
 }
 function announce(key, kind) {
-  if (!overlayWin || overlayWin.isDestroyed()) return;
+  if (!overlayWin || overlayWin.isDestroyed() || (!settings.showNotice && !settings.playSound)) return;
   const display = screen.getAllDisplays().find((item) => String(item.id) === settings.monitorValue) || screen.getPrimaryDisplay();
   const { x, y, width } = display.workArea;
   overlayWin.setBounds({ x: x + width - OVERLAY_SIZE.width - 12, y: y + 12 + TIMER_SIZE.height + 6, ...OVERLAY_SIZE });
-  overlayWin.webContents.send('show', { title: tr(key), kind, dir: settings.language === 'ar' ? 'rtl' : 'ltr' });
+  overlayWin.webContents.send('show', { title: tr(key), kind, dir: settings.language === 'ar' ? 'rtl' : 'ltr', sound: settings.playSound });
+  if (!settings.showNotice) return;
   overlayWin.setAlwaysOnTop(true, 'screen-saver');
   overlayWin.showInactive();
   clearTimeout(overlayTimer);
@@ -106,7 +108,7 @@ function loadSettings() {
     clipsFolder: path.join(app.getPath('videos'), 'CLFED Capture'), replaySeconds: 60, resolution: '1080', fps: 60,
     monitorValue: '', showRecordTimer: true, audioSyncMs: -80, captureMode: 'screen', windowName: '', onlyGaming: false, customGames: '',
     audioMode: 'separate', systemOn: true, systemVolume: 100, micDevice: '', micVolume: 100, discordVolume: 100, appsVolume: 100,
-    hotkeys: { ...DEFAULT_HOTKEYS }, autoReplay: true, mic: true, recordSeconds: 0, lastRecordSeconds: 60, storageLimitGB: 0, openAtLogin: false,
+    hotkeys: { ...DEFAULT_HOTKEYS }, autoUpdates: true, folderPerGame: false, oneDriveCopy: false, playSound: true, showNotice: true, autoReplay: true, mic: true, recordSeconds: 0, lastRecordSeconds: 60, storageLimitGB: 0, openAtLogin: false,
     language: app.getLocale().startsWith('ar') ? 'ar' : 'en',
   };
   let saved = {};
@@ -228,6 +230,23 @@ function syncHelpers() {
   if (!fallbackActive && !helpers.apps) startHelper('apps', 'exclude');
   if (hasDiscord() && !helpers.discord) startHelper('discord', 'include');
 }
+function clipsDir() {
+  const game = settings.folderPerGame ? runningGame() : '';
+  if (!game) return settings.clipsFolder;
+  const name = game.replace(/\.exe$/i, '').replace(/-Win64-Shipping$/i, '').replace(/[<>:"/\\|?*]/g, '');
+  const folder = path.join(settings.clipsFolder, name);
+  fs.mkdirSync(folder, { recursive: true });
+  return folder;
+}
+function backupClip(file) {
+  if (!settings.oneDriveCopy) return;
+  if (!process.env.OneDrive) { notify('noOneDrive', 'warn'); return; }
+  const folder = path.join(process.env.OneDrive, 'CLFED Capture');
+  fs.promises.mkdir(folder, { recursive: true })
+    .then(() => fs.promises.copyFile(file, path.join(folder, path.basename(file))))
+    .catch((error) => { log(`OneDrive copy: ${error.message}`); notify('noOneDrive', 'warn'); });
+}
+
 function isNewer(remote, current) {
   const a = String(remote).split('.').map(Number);
   const b = String(current).split('.').map(Number);
@@ -236,13 +255,13 @@ function isNewer(remote, current) {
   }
   return false;
 }
-async function checkForUpdate() {
+async function checkForUpdate(manual = false) {
   const response = await net.fetch(`${UPDATE_URL}?t=${Date.now()}`, { cache: 'no-store' });
   if (!response.ok) return;
   const info = await response.json();
   if (!info.version || !info.url || !/^[a-f0-9]{64}$/.test(info.sha256 || '')) return;
   if (!testMode && !info.url.startsWith(UPDATE_PREFIX)) return;
-  if (!isNewer(info.version, app.getVersion())) return;
+  if (!isNewer(info.version, app.getVersion())) { if (manual) notify('upToDate', 'good'); return; }
   updateInfo = info;
   setState({ update: { version: info.version, phase: 'available', progress: 0 } });
 }
@@ -568,6 +587,7 @@ async function joinSegments(names, target, seconds) {
   const audioOutput = tracks.length ? ['-filter_complex', `${mixing}alimiter=limit=0.95[sound]`, '-map', '0:v', '-map', '[sound]', '-c:a', 'aac', '-b:a', '192k'] : [];
   const limit = seconds > 0 ? ['-t', String(seconds)] : [];
   await runFfmpeg(['-f', 'mpegts', '-i', joined, ...inputs, ...audioOutput, ...limit, '-c:v', 'copy', '-movflags', '+faststart', target]);
+  backupClip(target);
   fs.rmSync(joined, { force: true });
   sounds.forEach((sound) => fs.rmSync(sound, { force: true }));
 }
@@ -609,7 +629,7 @@ async function saveReplay() {
     const names = gpuSegments().slice(0, -1).slice(-settings.replaySeconds);
     if (!names.length) { notify('waitReplay', 'warn'); return; }
     announce('savedReplay', 'replay');
-    await joinSegments(names, path.join(settings.clipsFolder, `Replay ${stamp()}.mp4`), 0);
+    await joinSegments(names, path.join(clipsDir(), `Replay ${stamp()}.mp4`), 0);
     return;
   }
   await command('flushReplay');
@@ -619,7 +639,7 @@ async function saveReplay() {
   const files = parts;
   const list = path.join(replayDir(), `list-${Date.now()}.txt`);
   fs.writeFileSync(list, files.map((file) => `file '${file.replace(/\\/g, '/').replace(/'/g, "'\\''")}'`).join('\n'));
-  const target = path.join(settings.clipsFolder, `Replay ${stamp()}.mp4`);
+  const target = path.join(clipsDir(), `Replay ${stamp()}.mp4`);
   await runFfmpeg(['-f', 'concat', '-safe', '0', '-i', list, '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', target]);
   fs.rmSync(list, { force: true });
   announce('savedReplay', 'replay');
@@ -643,7 +663,7 @@ async function stopGpuRecord() {
   await new Promise((resolve) => setTimeout(resolve, 1300));
   const names = gpuSegments().slice(0, -1).filter((name) => segmentNumber(name) >= current.firstSegment);
   try {
-    if (names.length) await joinSegments(names, path.join(settings.clipsFolder, `Recording ${stamp()}.mp4`), seconds);
+    if (names.length) await joinSegments(names, path.join(clipsDir(), `Recording ${stamp()}.mp4`), seconds);
   } finally {
     recording = null;
     await stopGpuEngineIfIdle();
@@ -661,7 +681,7 @@ async function startRecord() {
       if (error.message !== GPU_RETRY) throw error;
     }
   }
-  const raw = path.join(settings.clipsFolder, `Recording ${stamp()}.webm`);
+  const raw = path.join(clipsDir(), `Recording ${stamp()}.webm`);
   recording = { raw, stream: fs.createWriteStream(raw), started: Date.now(), timer: null };
   recording.stream.on('error', (error) => log(error.message));
   await command('startRecord', await captureConfig());
@@ -707,7 +727,7 @@ async function screenshot() {
   const size = { width: Math.round(display.size.width * display.scaleFactor), height: Math.round(display.size.height * display.scaleFactor) };
   const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: size });
   const source = sources.find((item) => item.display_id === String(display.id)) || sources[0];
-  await fs.promises.writeFile(path.join(settings.clipsFolder, `Screenshot ${stamp()}.png`), source.thumbnail.toPNG());
+  await fs.promises.writeFile(path.join(clipsDir(), `Screenshot ${stamp()}.png`), source.thumbnail.toPNG());
 }
 
 function fail(error) { log(error.stack || error.message); send('toast', { key: I18N.ar[error.message] ? error.message : '', text: error.message, tone: 'warn' }); }
@@ -723,22 +743,28 @@ const actions = {
   toggleRecord: () => (state.record ? stopRecord() : startRecord()),
   screenshot,
   installUpdate,
+  joinDiscord: () => shell.openExternal(DISCORD_INVITE),
+  openClipsFolder: () => shell.openPath(settings.clipsFolder),
+  checkUpdates: () => checkForUpdate(true),
   schedule: async (time) => { setState({ startAt: time || '' }); },
 };
 
 function listClips() {
-  let names = [];
-  try { names = fs.readdirSync(settings.clipsFolder); } catch { return []; }
   const clips = [];
-  for (const name of names) {
-    if (!CLIP_EXT.has(path.extname(name).toLowerCase())) continue;
-    const file = path.join(settings.clipsFolder, name);
-    if (recording && recording.raw === file) continue;
-    try {
-      const stat = fs.statSync(file);
-      if (stat.isFile()) clips.push({ name, file, url: pathToFileURL(file).href, size: stat.size, time: stat.mtimeMs, image: name.toLowerCase().endsWith('.png') });
-    } catch { /* a file can vanish while listing */ }
-  }
+  const scan = (folder, depth) => {
+    let entries = [];
+    try { entries = fs.readdirSync(folder, { withFileTypes: true }); } catch { return; }
+    for (const entry of entries) {
+      const file = path.join(folder, entry.name);
+      if (entry.isDirectory()) { if (depth === 0) scan(file, 1); continue; }
+      if (!CLIP_EXT.has(path.extname(entry.name).toLowerCase()) || (recording && recording.raw === file)) continue;
+      try {
+        const stat = fs.statSync(file);
+        clips.push({ name: entry.name, file, url: pathToFileURL(file).href, size: stat.size, time: stat.mtimeMs, image: entry.name.toLowerCase().endsWith('.png') });
+      } catch { /* a file can vanish while listing */ }
+    }
+  };
+  scan(settings.clipsFolder, 0);
   return clips.sort((a, b) => b.time - a.time);
 }
 
@@ -753,7 +779,8 @@ async function enforceStorageLimit() {
   }
 }
 function isClip(file) {
-  return path.dirname(path.resolve(file)) === path.resolve(settings.clipsFolder) && CLIP_EXT.has(path.extname(file).toLowerCase());
+  const relative = path.relative(settings.clipsFolder, path.resolve(file));
+  return !relative.startsWith('..') && !path.isAbsolute(relative) && relative.split(path.sep).length <= 2 && CLIP_EXT.has(path.extname(file).toLowerCase());
 }
 
 function createWindows() {
@@ -980,7 +1007,7 @@ if (!app.requestSingleInstanceLock()) {
       }
     }, 1000);
     setInterval(() => pollProcesses().catch(fail), 5000);
-    const update = () => checkForUpdate().catch((error) => log(`update check: ${error.message}`));
+    const update = () => { if (settings.autoUpdates) checkForUpdate().catch((error) => log(`update check: ${error.message}`)); };
     setTimeout(update, 3000);
     setInterval(update, UPDATE_CHECK_MS);
     await pollProcesses().catch(fail);

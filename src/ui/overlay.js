@@ -8,9 +8,11 @@ const ICONS = {
 const sound = new Audio('alert.mp3');
 const card = document.getElementById('card');
 const mark = document.getElementById('mark');
-window.overlay.onShow(({ title, kind, dir }) => {
-  sound.currentTime = 0;
-  sound.play().catch(() => {});
+window.overlay.onShow(({ title, kind, dir, sound: playSound }) => {
+  if (playSound) {
+    sound.currentTime = 0;
+    sound.play().catch(() => {});
+  }
   document.documentElement.dir = dir;
   document.getElementById('title').textContent = title;
   mark.className = kind === 'record' ? 'rec' : '';
