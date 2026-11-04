@@ -41,7 +41,7 @@ const I18N = {
     files: 'files', inFolder: 'in', openExternal: 'Open externally', reveal: 'Show in folder', trash: 'Move to Recycle Bin', newName: 'New name', rename: 'Rename',
     viewerFail: 'The viewer cannot open this file. Use Open externally.', applyHint: 'Changes apply after saving.', monitor: 'Screen', screen: 'Screen', primary: 'Primary', resolution: 'Resolution', fps: 'Frame rate',
     storage: 'Maximum folder size', folder: 'Clips folder', change: 'Change', autoReplay: 'Start Instant Replay with the app', micOption: 'Record the microphone with system audio',
-    openAtLogin: 'Open when my PC starts', save: 'Save changes', language: 'Language', ready: 'Good to go', recording: 'Recording', replayRunning: 'Good to go',
+    openAtLogin: 'Open when my PC starts', save: 'Save changes', language: 'Language', ready: 'Ready to record', recording: 'Recording', replayRunning: 'Ready to record',
     saved: 'Settings saved', savedReplay: 'Replay captured', savedRecord: 'Recording finished', savedShot: 'Screenshot taken', recordStarted: 'Recording started', replayFirst: 'Start Instant Replay first', waitReplay: 'Wait a few seconds and try again',
     noScreen: 'No screen found to record', stopFirst: 'Stop the recording first', badName: 'Invalid name', nameUsed: 'That name is already used', hotkeysBusy: 'These hotkeys are used by another app', recordProblem: 'Recording problem',
     scheduled: 'Recording will start at', whileOpen: 'while the app is running', sec: 's', min: 'min', trayOpen: 'Open CLFED Capture', traySave: 'Save last moment', trayQuit: 'Quit',
